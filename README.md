@@ -47,6 +47,44 @@ pip install -r requirements.txt
 - `enhanced_prompt` — 最终增强 prompt
 - `structured_plan` — 语义规划过程（structured 模式下）
 
+## 示例
+
+**输入：** `人物替换，背景改在图书馆，原视频动作不变`
+
+**structured_plan：**
+```
+[OBSERVATION]
+The source video shows a young woman sitting on the floor of what appears to be a bedroom.
+She is dressed in an elegant blue gown and holding a glass slipper. The room has large
+windows with natural light, a wooden bed with white bedding, and a small table beside it.
+
+The reference image (Ref-0) depicts another young woman sitting in what looks like a cozy
+room with floral-patterned furniture, wearing a yellow dress with purple floral designs.
+The lighting is warm and soft, creating a welcoming atmosphere.
+
+[UNDERSTAND]
+The instruction requires replacing the original character with one from the reference image
+while keeping her action of holding the glass slipper. The setting is to be changed to a
+library instead of a bedroom.
+
+[EXECUTE]
+1. Replace the young woman in the blue dress with the girl from Ref-0, ensuring she maintains
+   similar poses and expressions.
+2. Change the background to a library with bookshelves filled with books, a large window
+   allowing natural light, and possibly some green plants or floral arrangements to maintain
+   some of the original's aesthetic elements.
+```
+
+**enhanced_prompt：**
+```
+In this filmic narrative, we find ourselves in a serene library setting. The soft, warm glow
+from a large window bathes the scene in golden light, highlighting the intricate purple floral
+patterns on the young woman's yellow dress. Her hair is styled in an elegant updo, complementing
+her poised demeanor as she sits gracefully on the floor, cradling a glass slipper in her hands.
+The background is filled with towering bookshelves, a classic wooden table adorned with books
+and plants, adding to the enchanting ambiance of this quiet corner of knowledge.
+```
+
 ## 模型
 
 | 模型 | 大小 | 说明 |
