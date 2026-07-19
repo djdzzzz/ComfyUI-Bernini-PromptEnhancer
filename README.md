@@ -24,8 +24,8 @@ pip install -r requirements.txt
 
 下载 Bernini-MLLM-Qwen2.5-VL-7B GGUF 量化模型到 `ComfyUI/models/clip/`：
 
-- [Bernini-MLLM-Qwen2.5-VL-7B.Q4_K_M.gguf](https://hf-mirror.com/attashe/Bernini-MLLM-Qwen2.5-VL-7B)
-- [Bernini-MLLM-Qwen2.5-VL-7B.mmproj-Q8_0.gguf](https://hf-mirror.com/attashe/Bernini-MLLM-Qwen2.5-VL-7B)
+- [Bernini-MLLM-Qwen2.5-VL-7B.gguf](https://huggingface.co/mradermacher/Bernini-MLLM-Qwen2.5-VL-7B-GGUF)
+- [Bernini-MLLM-Qwen2.5-VL-7B.mmproj.gguf](https://huggingface.co/mradermacher/Bernini-MLLM-Qwen2.5-VL-7B-GGUF)
 
 ## 节点
 
