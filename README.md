@@ -57,7 +57,7 @@ pip install -r requirements.txt
 
 
 ## 致谢
-
-- [Bernini MLLM](https://hf-mirror.com/attashe/Bernini-MLLM-Qwen2.5-VL-7B) — ByteDance 的语义规划器
+- [Bernini-Diffusers](https://huggingface.co/ByteDance/Bernini-Diffusers)
+- [Bernini MLLM-GGUF](https://huggingface.co/mradermacher/Bernini-MLLM-Qwen2.5-VL-7B-GGUF) — ByteDance 的语义规划器的GGUF量化
 - [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
 - [llama-cpp-python](https://github.com/abetlen/llama-cpp-python)
