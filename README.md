@@ -55,21 +55,6 @@ pip install -r requirements.txt
 | Q8_0 | ~8GB | 更高质量，显存需求 ~9GB |
 | bf16 | ~14GB | 原始精度，最佳效果 |
 
-> Q4 量化模型视觉理解能力有限，天气/细粒度属性提取可能不准确。追求质量建议用更高精度。
-
-## 常见问题
-
-### 云 GPU（仙宫云等）：libcudart.so 不匹配
-
-若报 `libcudart.so.12: cannot open shared object file`，说明 llama-cpp-python 为 CUDA 12 编译但服务器是 CUDA 13.x。重装即可：
-
-```bash
-conda activate comfyui  # 或其他 ComfyUI 所在的虚拟环境
-pip uninstall llama-cpp-python -y
-CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python --no-cache-dir --force-reinstall
-```
-
-它会自动匹配当前 CUDA 版本编译。
 
 ## 致谢
 
