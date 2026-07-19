@@ -52,11 +52,28 @@ class _MLLM:
         self.mp = mp; self.mm = mm or ""; self.ctx = ctx; self.gpu = gpu; self.seed = seed; self.p = None
 
     def _ensure(self):
-        if self.p and self.p.poll() is None: return
+        if self.p and self.p.poll() is None:
+            # Worker exists but might be zombie — verify with ping
+            try:
+                self.p.stdin.write('{"cmd":"ping"}\n'); self.p.stdin.flush()
+                line = self.p.stdout.readline()
+                if line and json.loads(line).get("ok"):
+                    return  # alive and responsive
+            except: pass
+            self._kill()
         self.p = subprocess.Popen([sys.executable, "-u", self._W], stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=sys.stderr, text=True, encoding="utf-8",
             errors="replace", bufsize=1, env={**os.environ})
         print(f"[BerniniPE] worker pid={self.p.pid} model={self.mp}", flush=True)
+        # Verify startup with ping
+        try:
+            self.p.stdin.write('{"cmd":"ping"}\n'); self.p.stdin.flush()
+            line = self.p.stdout.readline()
+            if not line or not json.loads(line).get("ok"):
+                raise RuntimeError("worker ping failed")
+        except Exception as e:
+            print(f"[BerniniPE] worker startup failed: {e}", flush=True)
+            self._kill()
 
     def _send(self, req, timeout=3600):
         self._ensure()
@@ -139,7 +156,7 @@ def _route(tt, prompt, nr):
         "v2v":   (ds, V2V.format(user_prompt=prompt), "video"),
         "mv2v":  (ds, V2V.format(user_prompt=prompt), "video"),
         "i2i":   (ds, I2I.format(user_prompt=prompt), "ref"),
-        "i2v":   (ds, I2V.format(user_prompt=prompt, image_num=n), "ref_or_first"),
+        "i2v":   (I2V_SP, I2V.format(user_prompt=prompt, image_num=n), "ref_or_first"),
         "ads2v": (ds, ADS2V.format(user_prompt=prompt), "video"),
         "vi2v":  (ds, VI2V.format(user_prompt=prompt, image_num=n), "video+ref"),
         "r2v":   (ds, R2V.format(image_num=n, original_text=prompt), "ref"),
@@ -150,7 +167,7 @@ def _route(tt, prompt, nr):
     sp, ut, order = r.get(tt, (ds, prompt, "none"))
     # For visual tasks: append structured plan request with delimiter.
     # Skip tasks that already have [FINAL_PROMPT] built into their template.
-    if order != "none" and tt not in ("r2v", "r2i", "rv2v", "vrc2v", "vi2v", "ads2v"):
+    if order != "none" and tt not in ("r2v", "r2i", "rv2v", "vrc2v", "vi2v", "ads2v", "i2v"):
         ut += PLAN_SUFFIX
     return sp, ut, order
 
@@ -209,8 +226,17 @@ class BerniniMLLMPromptEnhancer:
                 source_video=None, reference_video=None,
                 reference_image_0=None, reference_image_1=None, reference_image_2=None, **kw):
         raw = prompt.strip()
-        if not raw: return ("", "")
-        if template_mode == "official" and not raw: return ("", "")
+        # Default instructions when user leaves prompt empty
+        _defaults = {
+            "v2v": "enhance the video", "mv2v": "enhance the video",
+            "i2i": "enhance the image", "i2v": "generate a video",
+            "ads2v": "identify ad placement", "vi2v": "edit with reference",
+            "rv2v": "edit with reference", "vrc2v": "edit with reference",
+            "r2v": "generate a video", "r2i": "generate an image",
+        }
+        if not raw:
+            raw = _defaults.get(task_type, "describe and enhance")
+            prompt = raw
 
         mp = _resolve(model)
         mm = _resolve(mmproj) if mmproj and mmproj != "<none>" else None
@@ -243,6 +269,10 @@ class BerniniMLLMPromptEnhancer:
         mllm = _MLLM(mp, mm, n_ctx, n_gpu_layers, seed)
         try:
             result = mllm.chat(msgs, mt=max_tokens, temp=temperature, rp=repeat_penalty)
+            if result is None:
+                print(f"[BerniniPE] retrying with fresh worker...", flush=True)
+                mllm._kill()
+                result = mllm.chat(msgs, mt=max_tokens, temp=temperature, rp=repeat_penalty)
         finally:
             mllm.unload()
         v1 = (torch.cuda.memory_allocated() / 1048576) if torch.cuda.is_available() else 0
@@ -258,12 +288,16 @@ class BerniniMLLMPromptEnhancer:
         result = result or ""
         plan, desc = "", result
         # match header like [FINAL_PROMPT], **FINAL_PROMPT**:, FINAL PROMPT: (same line or new line)
-        m = re.search(r'(?:^|\n)(\[?\*{0,2}\s*FINAL[\s_]PROMPT\]?\s*:?\*{0,2})', result, re.IGNORECASE)
+        m = re.search(r'(?:^|\n)(?:\d+\.\s*)?\[?\*{0,2}\s*FINAL[\s_]PROMPT\]?\s*:?\*{0,2}', result, re.IGNORECASE)
         if m:
             plan = result[:m.start()].strip()
             desc = result[m.end():].strip()
             # clean up trailing "assistant" noise
             desc = re.sub(r'^\s*assistant\s*\n*', '', desc, flags=re.IGNORECASE).strip()
+        else:
+            # No structured format — model wrote direct output
+            desc = result
+            plan = "[Direct]"
         return (desc or "", plan or "")
 
 
@@ -293,9 +327,17 @@ I2I = """You are an image editing planner. Source image provided.
 User instruction: "{user_prompt}"
 Reply in descriptive English text. Do NOT output coordinates or bounding boxes."""  # noqa: E501
 
-I2V = """You are a video generation planner. {image_num} reference image(s) provided.
-User intent: "{user_prompt}"
-Describe each reference image in [OBSERVATION]. Reply in descriptive English text. Do NOT output coordinates or bounding boxes."""  # noqa: E501
+I2V = """{image_num} reference image(s) provided.
+User intent: "{user_prompt}" """  # noqa: E501
+
+I2V_SP = ("You are a video generation planner. Reply in natural language. "
+    "Never output bounding boxes, coordinates, or HTML tags. "
+    "Output using these EXACT sections: "
+    "[OBSERVATION] — describe the reference image; "
+    "[UNDERSTAND] — what the user intent means; "
+    "[EXECUTE] — plan the video step by step; "
+    "[PRESERVE] — key elements that stay consistent; "
+    "[FINAL_PROMPT] — descriptive video paragraph (4-8 sentences, film-narrative style).")
 
 VI2V = """Task: Video Editing with Reference Image. 3 source video frames + {image_num} reference image(s) provided.
 User instruction: "{user_prompt}"

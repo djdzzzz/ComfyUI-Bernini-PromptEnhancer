@@ -54,6 +54,9 @@ def main():
         except: continue
 
         cmd = req.get("cmd")
+        if cmd == "ping":
+            _respond({"ok": True, "text": "pong"})
+            continue
         if cmd == "exit":
             _respond({"ok": True, "text": "bye"})
             break
