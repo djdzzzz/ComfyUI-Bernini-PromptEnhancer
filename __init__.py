@@ -51,29 +51,26 @@ class _MLLM:
     def __init__(self, mp, mm, ctx, gpu, seed):
         self.mp = mp; self.mm = mm or ""; self.ctx = ctx; self.gpu = gpu; self.seed = seed; self.p = None
 
+    def _ping(self):
+        """Ping worker with timeout. Returns True if alive, False if unresponsive."""
+        try:
+            self.p.stdin.write('{"cmd":"ping"}\n'); self.p.stdin.flush()
+            box = {}
+            def r(): 
+                try: box["l"] = self.p.stdout.readline()
+                except: box["l"] = ""
+            t = threading.Thread(target=r, daemon=True); t.start(); t.join(5)
+            if t.is_alive(): return False
+            return bool(box.get("l") and json.loads(box["l"]).get("ok"))
+        except:
+            return False
+
     def _ensure(self):
-        if self.p and self.p.poll() is None:
-            # Worker exists but might be zombie — verify with ping
-            try:
-                self.p.stdin.write('{"cmd":"ping"}\n'); self.p.stdin.flush()
-                line = self.p.stdout.readline()
-                if line and json.loads(line).get("ok"):
-                    return  # alive and responsive
-            except: pass
-            self._kill()
+        if self.p and self.p.poll() is None: return
         self.p = subprocess.Popen([sys.executable, "-u", self._W], stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=sys.stderr, text=True, encoding="utf-8",
             errors="replace", bufsize=1, env={**os.environ})
-        print(f"[BerniniPE] worker pid={self.p.pid} model={self.mp}", flush=True)
-        # Verify startup with ping
-        try:
-            self.p.stdin.write('{"cmd":"ping"}\n'); self.p.stdin.flush()
-            line = self.p.stdout.readline()
-            if not line or not json.loads(line).get("ok"):
-                raise RuntimeError("worker ping failed")
-        except Exception as e:
-            print(f"[BerniniPE] worker startup failed: {e}", flush=True)
-            self._kill()
+        print(f"[BerniniPE] worker pid={self.p.pid}", flush=True)
 
     def _send(self, req, timeout=3600):
         self._ensure()
@@ -245,9 +242,12 @@ class BerniniMLLMPromptEnhancer:
         src = _sample(_t2p(source_video), video_frames)
         rvid = _sample(_t2p(reference_video), video_frames)
         ref = []
-        for ri in (reference_image_0, reference_image_1, reference_image_2):
+        ref_slots = []
+        for idx, ri in enumerate((reference_image_0, reference_image_1, reference_image_2)):
             p = _t2p(ri)
-            if p: ref.append(p[0])
+            if p:
+                ref.append(p[0])
+                ref_slots.append(idx)
 
         sp, ut, order = (_route_official if template_mode == "official" else _route)(task_type, prompt, len(ref))
         labels = None
@@ -260,7 +260,7 @@ class BerniniMLLMPromptEnhancer:
                 "ref_or_first": (imgs_ref or imgs_src[:1]) + imgs_rvid}[order]
         if order == "video+ref":
             labels = [f"Source-{i}" for i in range(len(imgs_src))] + \
-                     [f"Ref-{i}"   for i in range(len(imgs_ref))]  + \
+                     [f"Ref-{ref_slots[i]}"   for i in range(len(imgs_ref))]  + \
                      [f"RefVid-{i}" for i in range(len(imgs_rvid))]
         msgs = _build_msgs(sp, ut, imgs, labels)
 
@@ -288,7 +288,7 @@ class BerniniMLLMPromptEnhancer:
         result = result or ""
         plan, desc = "", result
         # match header like [FINAL_PROMPT], **FINAL_PROMPT**:, FINAL PROMPT: (same line or new line)
-        m = re.search(r'(?:^|\n)(?:\d+\.\s*)?\[?\*{0,2}\s*FINAL[\s_]PROMPT\]?\s*:?\*{0,2}', result, re.IGNORECASE)
+        m = re.search(r'(?:^|\n)(?:\d+\.\s*)?\[?\*{0,2}\s*FINAL[\s_]PROM\w+T\]?\s*:?\*{0,2}', result, re.IGNORECASE)
         if m:
             plan = result[:m.start()].strip()
             desc = result[m.end():].strip()
@@ -396,7 +396,7 @@ VR2V = """You are a video editing planner. Source video frames and {image_num} r
 User instruction: {original_text}
 
 RULES:
-- [OBSERVATION]: Describe the source video (scene, subjects, actions, lighting, weather, camera, mood). Then describe EACH reference image independently (Ref-0 to Ref-{image_num_1}) — what it shows, lighting, colors, atmosphere, style, any notable details. NEVER write "similar to Ref-X".
+- [OBSERVATION]: Describe the source video (scene, subjects, actions, lighting, weather, camera, mood). Then describe EACH reference image independently — use the Ref-X label shown with each image. Include what it shows, lighting, colors, atmosphere, style, any notable details. NEVER write "similar to Ref-X".
 - [UNDERSTAND]: Explain what the instruction means based on your observations. What changes? What stays?
 - [EXECUTE]: Plan the visual changes step by step. Be specific.
 - [PRESERVE]: List everything that stays exactly the same.
@@ -479,5 +479,13 @@ Write ONE English paragraph: editing instruction + target description.
 Return: {{"rewritten_text":"..."}}"""  # noqa: E501
 
 
-NODE_CLASS_MAPPINGS = {"BerniniMLLMPromptEnhancer": BerniniMLLMPromptEnhancer}
-NODE_DISPLAY_NAME_MAPPINGS = {"BerniniMLLMPromptEnhancer": "Bernini MLLM Prompt Enhancer (GGUF)"}
+from .qwen35_node import Qwen35PromptEnhancer
+
+NODE_CLASS_MAPPINGS = {
+    "BerniniMLLMPromptEnhancer": BerniniMLLMPromptEnhancer,
+    "Qwen35PromptEnhancer": Qwen35PromptEnhancer,
+}
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "BerniniMLLMPromptEnhancer": "Bernini MLLM Prompt Enhancer (GGUF)",
+    "Qwen35PromptEnhancer": "Qwen3.5 Prompt Enhancer (GGUF)",
+}
