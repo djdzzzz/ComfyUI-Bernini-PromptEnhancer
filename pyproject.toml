@@ -1,0 +1,22 @@
+[project]
+name = "comfyui-bernini-promptenhancer"
+description = "Bernini MLLM semantic planner for local prompt enhancement in ComfyUI — 12 task types, GGUF offline inference, zero VRAM residue"
+version = "1.0.0"
+license = { text = "Apache-2.0" }
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "llama-cpp-python>=0.3.0",
+    "torch>=2.0.0",
+    "numpy>=1.24.0",
+    "Pillow>=9.0.0",
+]
+
+[project.urls]
+Repository = "https://github.com/djdzzzz/ComfyUI-Bernini-PromptEnhancer"
+
+# Comfy Node Registry — https://docs.comfy.org/registry
+[tool.comfy]
+PublisherId = "djdzzzz"
+DisplayName = "ComfyUI-Bernini-PromptEnhancer"
+Icon = ""
