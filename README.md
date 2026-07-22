@@ -2,30 +2,58 @@
 
 [中文文档](README.zh-CN.md)
 
-A ComfyUI custom node package that brings **ByteDance Bernini**'s MLLM-based semantic planning to local prompt enhancement. It combines image/video understanding with natural-language planning via **local GGUF inference** — no cloud API required — and outputs enhanced, high-quality prompts ready for video/image diffusion models (Wan2.2, etc.).
+A ComfyUI custom node package that brings **ByteDance Bernini**'s MLLM-based semantic planning to local prompt enhancement via **local GGUF inference** — no cloud API required. Outputs enhanced prompts ready for Wan2.2 and other video/image diffusion models.
 
 Based on [Bernini: Latent Semantic Planning for Video Diffusion](https://arxiv.org/abs/2605.22344) and the [Bernini-Diffusers](https://huggingface.co/ByteDance/Bernini-Diffusers) model.
 
 ## Features
 
-- **Local GGUF inference** — runs entirely offline on consumer GPUs via llama.cpp
-- **12 task types** — `t2v`, `t2i`, `v2v`, `mv2v`, `i2i`, `i2v`, `ads2v`, `vi2v`, `r2v`, `r2i`, `rv2v`, `vrc2v`
-- **Zero VRAM residue** — subprocess-isolated inference, VRAM fully released after each run
-- **Dual output** — `enhanced_prompt` + `structured_plan` (the reasoning trace)
-- **Structured & official modes** — `template_mode` toggle on the Bernini node
+- **13 task types** — `t2v`, `t2i`, `v2v`, `mv2v`, `i2i`, `i2v`, `ads2v`, `vi2v`, `r2v`, `r2i`, `rv2v`, `vrc2v`, `fl2v`
+- **Smart frame selection** — `smart_frames` toggle uses frame-difference sampling instead of uniform spacing, giving the MLLM higher information density
+- **First/Last frame transition** — `fl2v` task generates a prompt describing the video between a start frame and end frame
+- **GGUF local inference** — runs entirely offline on consumer GPUs via llama.cpp subprocess
+- **Zero VRAM residue** — subprocess-isolated, VRAM fully released after each run
+- **Dual output** — `enhanced_prompt` + `structured_plan`
+- **Image passthrough** — `source_video`, `reference_video`, `reference_image_0/1/2` pass through unchanged
+- **Dual template mode** — `structured` (five-section RULES) or `official` (single-pass), per the Bernini node
 - **Thinking-mode toggle** — Qwen3.5 node with `thinking_mode` switch (off by default)
-- **Reference-slot alignment** — Ref-X labels map 1:1 to ComfyUI's `reference_image_X` inputs
 
-### Task template overview
+### Tasks
 
-| Tasks | Template type | Output format |
-|-------|--------------|---------------|
-| r2v, r2i | built-in RULES five-section | `[OBSERVATION]` → `[FINAL_PROMPT]` |
-| rv2v, vrc2v | built-in RULES five-section | same as above |
-| i2v | separated system prompt | same as above |
-| v2v, mv2v, i2i | short template + PLAN_SUFFIX | same as above |
-| vi2v, ads2v | short template, no PLAN_SUFFIX | single-sentence output |
-| t2v, t2i | plain-text template | direct enhancement |
+| Task | Inputs used | Description |
+|------|-------------|-------------|
+| t2v | prompt | Text to video |
+| t2i | prompt | Text to image |
+| v2v | source_video + prompt | Enhance/edit source video |
+| mv2v | source_video + prompt | Multi-video edit (alias) |
+| i2i | prompt | Image to image |
+| i2v | ref_images + prompt | Image(s) to video |
+| ads2v | source_video + prompt | Ad placement in video |
+| vi2v | source_video + ref_images + prompt | Video + ref images edit |
+| r2v | ref_images + prompt | Reference images to video |
+| r2i | ref_images + prompt | Reference images to image |
+| rv2v | ref_video + ref_images + prompt | Ref video + ref images edit |
+| vrc2v | source_video + ref_images + prompt | Video + ref images edit (alias) |
+| fl2v | ref_image_0 + ref_image_1 + prompt | First-to-last frame transition |
+
+All tasks accept an optional user `prompt`. When left empty, a default instruction is used.
+
+### Smart frame sampling
+
+Default frame selection is uniform (evenly spaced). Enable `smart_frames` to pick frames with the highest inter-frame pixel change:
+
+```
+Uniform: 30 frames, pick 5 → frames 0, 7, 15, 22, 29
+Smart:   30 frames, pick 5 → the 5 frames where most action happens
+```
+
+Controlled by `video_frames` (1–16). Negligible CPU overhead (numpy frame-diff).
+
+### fl2v — First/Last frame transition
+
+Generates a prompt describing the continuous video between a start frame (`reference_image_0`) and an end frame (`reference_image_1`). Reference images are labeled `START-FRAME` and `END-FRAME` explicitly in the model input.
+
+For pixel-level anchoring with WanVideo, connect the same images to `WanFirstLastFrameToVideo`'s `start_image` and `end_image` inputs. Can also pair with `Wan22_FFGO-LoRA` for better multi-image fidelity.
 
 ## Installation
 
@@ -36,94 +64,67 @@ cd ComfyUI-Bernini-PromptEnhancer
 pip install -r requirements.txt
 ```
 
-Or install via [ComfyUI-Manager](https://github.com/Comfy-Org/ComfyUI-Manager) by searching "Bernini PromptEnhancer".
-
 ## Model setup
 
-Download the Bernini-MLLM-Qwen2.5-VL-7B GGUF quantized models into `ComfyUI/models/clip/`:
+Download GGUF quantized models into `ComfyUI/models/clip/`:
 
-- [Bernini-MLLM-Qwen2.5-VL-7B GGUF](https://huggingface.co/mradermacher/Bernini-MLLM-Qwen2.5-VL-7B-GGUF) — main model (`*.Q4_K_M.gguf` recommended)
-- The matching `*.mmproj-*.gguf` from the same repo (required for image/video inputs)
+- [Bernini-MLLM-Qwen2.5-VL-7B GGUF](https://huggingface.co/mradermacher/Bernini-MLLM-Qwen2.5-VL-7B-GGUF) — `*.Q4_K_M.gguf` recommended
+- Matching `*.mmproj-*.gguf` from the same repo
 
 ### Qwen3.5 node (optional)
 
-Supports the Qwen3.5-4B series. A prompt-engineering fine-tune is recommended:
-
 - [Yusiko/qwen3.5-prompter](https://huggingface.co/Yusiko/qwen3.5-prompter) — Qwen3.5-4B, prompt-engineering tuned, multimodal
-
-Place both `.gguf` and `.mmproj.gguf` into `ComfyUI/models/clip/`.
 
 ## Nodes
 
 ### Bernini MLLM Prompt Enhancer (GGUF)
 
-Main node, under the `Bernini` category.
+**Category:** `Bernini`
 
-**Required inputs:**
-- `model` — main GGUF model (e.g. `Q4_K_M.gguf`)
-- `mmproj` — multimodal projection (e.g. `mmproj-Q8_0.gguf`)
-- `task_type` — one of the 12 task types
-- `template_mode` — `structured` (planned) or `official` (single-pass)
-- `prompt` — your instruction
+| Input | Type | Default | Notes |
+|-------|------|---------|-------|
+| model | dropdown | — | `.gguf` file |
+| mmproj | dropdown | — | `.mmproj.gguf` file |
+| task_type | dropdown | v2v | 13 tasks |
+| template_mode | dropdown | structured | `structured` or `official` |
+| prompt | STRING | "" | multiline |
+| temperature | FLOAT | 0.6 | 0.0–2.0 |
+| video_frames | INT | 3 | 1–16, frames per video |
+| smart_frames | BOOLEAN | false | frame-diff sampling |
+| image_max_side | INT | 512 | 0=original, else max side |
+| *source_video* | IMAGE | — | optional |
+| *reference_video* | IMAGE | — | optional |
+| *reference_image_0/1/2* | IMAGE | — | optional |
 
-**Optional inputs:**
-- `source_video`, `reference_video`, `reference_image_0/1/2`
-
-**Outputs:**
-- `enhanced_prompt` — the final enhanced prompt
-- `structured_plan` — the semantic planning trace (structured mode)
+| Output | Type | Notes |
+|--------|------|-------|
+| enhanced_prompt | STRING | final prompt |
+| structured_plan | STRING | RULES reasoning trace |
+| source_video | IMAGE | passthrough |
+| reference_video | IMAGE | passthrough |
+| reference_image_0/1/2 | IMAGE | passthrough |
 
 ### Qwen3.5 Prompt Enhancer (GGUF)
 
-Next-generation node, under the `Bernini` category. Covers all 12 task types and suppresses thinking-mode output by default.
+**Category:** `Bernini`
 
-**Required inputs:** `model`, `mmproj`, `task_type`, `prompt`
-**Optional inputs:** `thinking_mode`, `source_video`, `reference_video`, `reference_image_0/1/2`
-**Outputs:** `enhanced_prompt`, `structured_plan`
+Same inputs and outputs as the Bernini node, plus:
 
-## Example
-
-**Input:** `Replace the person, change the background to a library, keep the original motion`
-
-**structured_plan:**
-```
-[OBSERVATION]
-The source video shows a young woman sitting on the floor of a bedroom, dressed in
-an elegant blue gown and holding a glass slipper...
-
-The reference image (Ref-0) depicts another young woman in a cozy room with
-floral-patterned furniture, wearing a yellow dress with purple floral designs...
-
-[UNDERSTAND]
-The instruction requires replacing the original character with the one from the
-reference image while keeping the glass-slipper pose. The setting changes to a library.
-
-[EXECUTE]
-1. Replace the woman in blue with the girl from Ref-0, keeping similar pose/expression.
-2. Change the background to a library with bookshelves, a large window with natural
-   light, and plants to preserve the original aesthetic.
-```
-
-**enhanced_prompt:**
-```
-In this filmic narrative, we find ourselves in a serene library. Soft warm light from
-a large window bathes the scene, highlighting the intricate purple floral patterns on
-the young woman's yellow dress. She sits gracefully on the floor, cradling a glass
-slipper. Towering bookshelves and a classic wooden table adorned with books and plants
-complete this quiet corner of knowledge.
-```
+| Input | Type | Default | Notes |
+|-------|------|---------|-------|
+| thinking_mode | BOOLEAN | false | Qwen3.5 think mode |
 
 ## Models
 
-| Quant | Size | Notes |
-|-------|------|-------|
-| Q4_K_M | ~4GB | Recommended, ~5GB VRAM |
-| Q8_0 | ~8GB | Higher quality, ~9GB VRAM |
-| bf16 | ~14GB | Full precision, best quality |
+| Quant | Size | VRAM |
+|-------|------|------|
+| Q4_K_M | ~4GB | ~5GB |
+| Q8_0 | ~8GB | ~9GB |
+| bf16 | ~14GB | ~14GB |
 
 ## Acknowledgements
 
-- [Bernini-Diffusers](https://huggingface.co/ByteDance/Bernini-Diffusers) — ByteDance's semantic planner
+- [Bernini-Diffusers](https://huggingface.co/ByteDance/Bernini-Diffusers) — semantic planner
 - [Bernini MLLM GGUF](https://huggingface.co/mradermacher/Bernini-MLLM-Qwen2.5-VL-7B-GGUF) — GGUF quantization
 - [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
 - [llama-cpp-python](https://github.com/abetlen/llama-cpp-python)

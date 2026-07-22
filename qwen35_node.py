@@ -114,6 +114,17 @@ def _sample(p, k):
     if n < 2: return p
     return [p[max(0, min(n-1, round(i*(n-1)/max(k-1,1))))] for i in range(k)]
 
+def _smart_sample(p, k):
+    n = len(p)
+    if n <= k: return p
+    diffs = [0.0]
+    arr = [np.asarray(im, np.float32) for im in p]
+    for i in range(1, n):
+        diffs.append(np.abs(arr[i] - arr[i-1]).mean())
+    ranked = sorted(range(n), key=lambda i: diffs[i], reverse=True)
+    picked = sorted(ranked[:k])
+    return [p[i] for i in picked]
+
 def _b64(img, ms=0):
     if ms and max(img.size) > ms:
         s = ms / max(img.size)
@@ -218,9 +229,10 @@ def _route(tt, prompt, nr):
         "r2i":   (ds, R2I.format(image_num=n, original_text=prompt), "ref"),
         "rv2v":  (ds, VR2V.format(image_num=n, image_num_1=n-1, original_text=prompt), "video+ref"),
         "vrc2v": (ds, VR2V.format(image_num=n, image_num_1=n-1, original_text=prompt), "video+ref"),
+        "fl2v":  (ds, FL2V.format(original_text=prompt), "ref"),
     }
     sp, ut, order = r.get(tt, (ds, f'Instruction: "{prompt}". Generate an enhanced prompt.', "none"))
-    if order != "none" and tt not in ("r2v", "r2i", "rv2v", "vrc2v", "vi2v", "ads2v", "i2v"):
+    if order != "none" and tt not in ("r2v", "r2i", "rv2v", "vrc2v", "vi2v", "ads2v", "i2v", "fl2v"):
         ut += PLAN_SUFFIX
     return sp, ut, order
 
@@ -405,6 +417,24 @@ RULES:
 [PRESERVE]
 [FINAL_PROMPT]"""
 
+FL2V = """Two reference images — START and END frames.
+Original description: "{original_text}"
+START-FRAME = first. END-FRAME = last. Plan transition.
+
+RULES:
+- [OBSERVATION]: START-FRAME details, then END-FRAME. Note changes.
+- [UNDERSTAND]: Transition from start to end.
+- [EXECUTE]: Video starts at START-FRAME, ends at END-FRAME.
+- [PRESERVE]: START-FRAME as beginning, END-FRAME as ending.
+- [FINAL_PROMPT]: 4-8 sentences. Begins with START-FRAME scene, ends with END-FRAME scene.
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
+
+
 class Qwen35PromptEnhancer:
     CATEGORY = "Bernini"
     FUNCTION = "enhance"
@@ -412,7 +442,7 @@ class Qwen35PromptEnhancer:
     RETURN_NAMES = ("enhanced_prompt", "structured_plan",
                     "source_video", "reference_video",
                     "reference_image_0", "reference_image_1", "reference_image_2")
-    TASKS = ["t2v","t2i","v2v","mv2v","i2i","i2v","ads2v","vi2v","r2v","r2i","rv2v","vrc2v"]
+    TASKS = ["t2v","t2i","v2v","mv2v","i2i","i2v","ads2v","vi2v","r2v","r2i","rv2v","vrc2v","fl2v"]
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -429,6 +459,7 @@ class Qwen35PromptEnhancer:
             "max_tokens": ("INT", {"default": 4096, "min": 128, "max": 16384}),
             "video_frames": ("INT", {"default": 3, "min": 1, "max": 16}),
             "image_max_side": ("INT", {"default": 512, "min": 0, "max": 4096, "step": 32}),
+            "smart_frames": ("BOOLEAN", {"default": False}),
             "thinking_mode": ("BOOLEAN", {"default": False}),
         }, "optional": {
             "source_video": ("IMAGE",), "reference_video": ("IMAGE",),
@@ -437,7 +468,7 @@ class Qwen35PromptEnhancer:
 
     def enhance(self, model, mmproj, task_type, prompt,
                 temperature, repeat_penalty, seed,
-                n_ctx, n_gpu_layers, max_tokens, video_frames, image_max_side,
+                n_ctx, n_gpu_layers, max_tokens, video_frames, image_max_side, smart_frames,
                 thinking_mode,
                 source_video=None, reference_video=None,
                 reference_image_0=None, reference_image_1=None, reference_image_2=None, **kw):
@@ -448,6 +479,7 @@ class Qwen35PromptEnhancer:
             "ads2v":"identify ad placement","vi2v":"edit with reference",
             "rv2v":"edit with reference","vrc2v":"edit with reference",
             "r2v":"generate a video","r2i":"generate an image",
+            "fl2v":"generate video from start to end frame",
         }
         if not raw:
             raw = _defaults.get(task_type, "describe and enhance")
@@ -457,8 +489,9 @@ class Qwen35PromptEnhancer:
         mm = _resolve(mmproj) if mmproj and mmproj != "<none>" else None
         if not os.path.isfile(mp): return (f"ERROR: {mp}", "")
 
-        src = _sample(_t2p(source_video), video_frames)
-        rvid = _sample(_t2p(reference_video), video_frames)
+        sf = _smart_sample if smart_frames else _sample
+        src = sf(_t2p(source_video), video_frames)
+        rvid = sf(_t2p(reference_video), video_frames)
         ref = []
         ref_slots = []
         for idx, ri in enumerate((reference_image_0, reference_image_1, reference_image_2)):
@@ -472,7 +505,14 @@ class Qwen35PromptEnhancer:
         imgs_src  = [_b64(p, image_max_side) for p in src]
         imgs_ref  = [_b64(p, image_max_side) for p in ref]
         imgs_rvid = [_b64(p, image_max_side) for p in rvid]
-        imgs = {"none": [], "video": imgs_src + imgs_rvid,
+        if order == "ref":
+            imgs = imgs_ref
+            if task_type == "fl2v" and len(imgs_ref) >= 2:
+                labels = ["START-FRAME", "END-FRAME"]
+            else:
+                labels = [f"Ref-{ref_slots[i]}" for i in range(len(imgs_ref))]
+        else:
+            imgs = {"none": [], "video": imgs_src + imgs_rvid,
                 "ref": imgs_ref + imgs_rvid,
                 "video+ref": imgs_src + imgs_ref + imgs_rvid,
                 "ref_or_first": (imgs_ref or imgs_src[:1]) + imgs_rvid}[order]

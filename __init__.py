@@ -127,6 +127,18 @@ def _sample(p, k):
     if n < 2: return p
     return [p[max(0, min(n-1, round(i*(n-1)/max(k-1,1))))] for i in range(k)]
 
+def _smart_sample(p, k):
+    """Select k frames with highest inter-frame change magnitude."""
+    n = len(p)
+    if n <= k: return p
+    diffs = [0.0]
+    arr = [np.asarray(im, np.float32) for im in p]
+    for i in range(1, n):
+        diffs.append(np.abs(arr[i] - arr[i-1]).mean())
+    ranked = sorted(range(n), key=lambda i: diffs[i], reverse=True)
+    picked = sorted(ranked[:k])
+    return [p[i] for i in picked]
+
 def _b64(img, ms=0):
     if ms and max(img.size) > ms:
         s = ms / max(img.size)
@@ -185,6 +197,7 @@ def _route_official(tt, prompt, nr):
         "r2i":   (ds, OR2I.format(image_num=n, original_text=prompt), "ref"),
         "rv2v":  (ds, OVR2V.format(image_num=n, original_text=prompt), "video+ref"),
         "vrc2v": (ds, OVR2V.format(image_num=n, original_text=prompt), "video+ref"),
+        "fl2v":  (ds, FL2V.format(original_text=prompt), "ref"),
     }
     return r.get(tt, (ds, prompt, "none"))
 
@@ -196,7 +209,7 @@ class BerniniMLLMPromptEnhancer:
     RETURN_NAMES = ("enhanced_prompt", "structured_plan",
                     "source_video", "reference_video",
                     "reference_image_0", "reference_image_1", "reference_image_2")
-    TASKS = ["t2v", "t2i", "v2v", "mv2v", "i2i", "i2v", "ads2v", "vi2v", "r2v", "r2i", "rv2v", "vrc2v"]
+    TASKS = ["t2v", "t2i", "v2v", "mv2v", "i2i", "i2v", "ads2v", "vi2v", "r2v", "r2i", "rv2v", "vrc2v", "fl2v"]
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -214,6 +227,7 @@ class BerniniMLLMPromptEnhancer:
             "max_tokens": ("INT", {"default": 4096, "min": 128, "max": 16384}),
             "video_frames": ("INT", {"default": 3, "min": 1, "max": 16}),
             "image_max_side": ("INT", {"default": 512, "min": 0, "max": 4096, "step": 32}),
+            "smart_frames": ("BOOLEAN", {"default": False}),
         }, "optional": {
             "source_video": ("IMAGE",), "reference_video": ("IMAGE",),
             "reference_image_0": ("IMAGE",), "reference_image_1": ("IMAGE",), "reference_image_2": ("IMAGE",),
@@ -221,7 +235,7 @@ class BerniniMLLMPromptEnhancer:
 
     def enhance(self, model, mmproj, task_type, template_mode, prompt,
                 temperature, repeat_penalty, seed,
-                n_ctx, n_gpu_layers, max_tokens, video_frames, image_max_side,
+                n_ctx, n_gpu_layers, max_tokens, video_frames, image_max_side, smart_frames,
                 source_video=None, reference_video=None,
                 reference_image_0=None, reference_image_1=None, reference_image_2=None, **kw):
         raw = prompt.strip()
@@ -232,6 +246,7 @@ class BerniniMLLMPromptEnhancer:
             "ads2v": "identify ad placement", "vi2v": "edit with reference",
             "rv2v": "edit with reference", "vrc2v": "edit with reference",
             "r2v": "generate a video", "r2i": "generate an image",
+            "fl2v": "generate video from start to end frame",
         }
         if not raw:
             raw = _defaults.get(task_type, "describe and enhance")
@@ -241,8 +256,9 @@ class BerniniMLLMPromptEnhancer:
         mm = _resolve(mmproj) if mmproj and mmproj != "<none>" else None
         if not os.path.isfile(mp): return (f"ERROR: {mp}", "")
 
-        src = _sample(_t2p(source_video), video_frames)
-        rvid = _sample(_t2p(reference_video), video_frames)
+        sf = _smart_sample if smart_frames else _sample
+        src = sf(_t2p(source_video), video_frames)
+        rvid = sf(_t2p(reference_video), video_frames)
         ref = []
         ref_slots = []
         for idx, ri in enumerate((reference_image_0, reference_image_1, reference_image_2)):
@@ -256,7 +272,14 @@ class BerniniMLLMPromptEnhancer:
         imgs_src  = [_b64(p, image_max_side) for p in src]
         imgs_ref  = [_b64(p, image_max_side) for p in ref]
         imgs_rvid = [_b64(p, image_max_side) for p in rvid]
-        imgs = {"none": [], "video": imgs_src + imgs_rvid,
+        if order == "ref":
+            imgs = imgs_ref
+            if task_type == "fl2v" and len(imgs_ref) >= 2:
+                labels = ["START-FRAME", "END-FRAME"]
+            else:
+                labels = [f"Ref-{ref_slots[i]}" for i in range(len(imgs_ref))]
+        else:
+            imgs = {"none": [], "video": imgs_src + imgs_rvid,
                 "ref": imgs_ref + imgs_rvid,
                 "video+ref": imgs_src + imgs_ref + imgs_rvid,
                 "ref_or_first": (imgs_ref or imgs_src[:1]) + imgs_rvid}[order]
@@ -669,6 +692,23 @@ RULES:
 [FINAL_PROMPT]"""
 
 from .qwen35_node import Qwen35PromptEnhancer
+
+FL2V = """Two reference images provided — START frame and END frame.
+Original description: "{original_text}"
+START-FRAME = first frame. END-FRAME = last frame. Plan transition between them.
+
+RULES:
+- [OBSERVATION]: Describe START-FRAME — subjects, positions, camera. Then END-FRAME. Note changes.
+- [UNDERSTAND]: The transition from start to end state.
+- [EXECUTE]: Plan video: starts at START-FRAME, ends at END-FRAME. Smooth path.
+- [PRESERVE]: START-FRAME content as beginning, END-FRAME content as ending.
+- [FINAL_PROMPT]: 4-8 sentence paragraph. Video begins with START-FRAME scene, ends with END-FRAME scene.
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
 
 NODE_CLASS_MAPPINGS = {
     "BerniniMLLMPromptEnhancer": BerniniMLLMPromptEnhancer,
