@@ -10,7 +10,7 @@ GGUF 本地推理的 Bernini MLLM 语义规划器，将图像/视频理解与自
 - **双输出** — `enhanced_prompt`（增强 prompt）+ `structured_plan`（语义规划）
 - **结构化与官方双模式** — Bernini 节点支持 `template_mode` 切换
 - **思考模式开关** — Qwen3.5 节点支持 `thinking_mode` 开关，默认关闭
-- **参考图槽位对齐** — Ref-X 标签严格对应 ComfyUI 的 `reference_image_X` 端口，避免编号混
+- **参考图槽位对齐** — Ref-X 标签严格对应 ComfyUI 的 `reference_image_X` 端口，避免编号混淆
 
 ### 任务模板概述
 

@@ -227,8 +227,32 @@ def _route(tt, prompt, nr):
 
 # Short task templates (without built-in plan — PLAN_SUFFIX appended)
 V2V = """Source video frames provided.
+
 User instruction: "{user_prompt}"
-Reply in descriptive English text. Do NOT output coordinates or bounding boxes."""
+
+Watch the source video. Identify specific physical details:
+1. WHAT MOVES: subjects, objects, background elements in motion vs stationary
+2. HOW IT MOVES: direction, speed, pattern of each moving element
+3. POSITIONS: spatial arrangement of subjects and objects
+4. CAMERA: movement type, speed, angle
+5. TIMING: rhythm, pace of actions and transitions
+
+Then enhance or edit based on the user's instruction. Add, modify, or emphasize specific elements while preserving the physical patterns.
+
+IMPORTANT: Focus on physical actions and visual details. NO vague adjectives or mood descriptions.
+
+RULES:
+- [OBSERVATION]: Describe the source video — ONLY physical details: what is in frame, what moves, how it moves, camera work, positions, timing. NO style/color/mood.
+- [UNDERSTAND]: What the user wants to change, add, or emphasize. Map the instruction to specific physical modifications.
+- [EXECUTE]: Plan the enhanced video. Keep source's physical patterns. Apply user's changes as specific physical actions.
+- [PRESERVE]: Key physical elements from source that must stay consistent. Changes from user instruction.
+- [FINAL_PROMPT]: Descriptive video paragraph (4-8 sentences). Describe the enhanced video with specific physical actions and details. NO vague style or mood language.
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
 
 I2I = """Source image provided.
 User instruction: "{user_prompt}"
@@ -247,11 +271,147 @@ I2V_SP = ("You are a video generation planner. Reply in natural language. "
     "[FINAL_PROMPT] — descriptive video paragraph (4-8 sentences, film-narrative style).")
 
 
+# Imitation video templates
+IM2V = """Imitation video frames provided.
+
+User request: "{user_prompt}"
+
+Watch the imitation video. Identify specific physical details:
+1. WHAT MOVES / WHAT IS STILL: Which parts are in motion? Which stay fixed?
+2. HOW IT MOVES: Direction, speed, pattern (continuous/rhythmic/intermittent)
+3. POSITIONS & LAYOUT: Where is each subject in frame? Spatial arrangement
+4. CAMERA: Is it moving? Static? Push/pull? Pan/tilt? Speed of any movement?
+5. TIMING: Rhythm, pace, duration of motions. Frame-to-frame changes.
+
+Then TRANSFER these exact physical patterns to the user's subjects.
+
+IMPORTANT: Do NOT describe colors, lighting, mood, atmosphere, or "style". Describe only what PHYSICALLY happens — which parts move HOW, WHERE, and at WHAT pace.
+
+EXAMPLES:
+- Flowers sway left-right, heads move, stems still → cats sway left-right, heads move, bodies still
+- Camera pushes in over 5s at constant speed → same push-in on new subjects
+- Three subjects center-left, one right-center → same arrangement
+
+RULES:
+- [OBSERVATION]: Physically describe the imitation video. ONLY: what moves, how (direction/speed/pattern), what is stationary, where subjects are in frame, how camera moves. NO style/mood/color/lighting.
+- [UNDERSTAND]: Map each physical pattern to the user's request. "Heads that sway left-right → the user's subjects' heads should sway left-right. Stalks that stay still → bodies stay still. Static camera → same."
+- [EXECUTE]: Plan video applying extracted motions, positions, camera, timing to user's subjects. Same movements, same layout, same pace.
+- [PRESERVE]: Movement patterns, spatial positions, camera behavior, timing from the imitation.
+- [FINAL_PROMPT]: Video paragraph (4-8 sentences). Describe user's subjects with imitation's physical actions. Say WHAT moves, HOW, WHERE, at WHAT pace. NO style/mood.
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
+
+RIM2V = """{image_num} reference image(s) and imitation video frames provided.
+
+Original description: "{original_text}"
+
+Reference images = WHO (subject identity, appearance). Imitation video = the physical template (actions, camera, layout, timing).
+
+Watch the imitation video for what moves, how, where, camera, timing — then transfer these physical patterns onto the reference subjects.
+
+IMPORTANT: Do NOT describe style/mood/color/lighting. Physical actions only.
+
+RULES:
+- [OBSERVATION]: Describe each ref image (Ref-X) — subject appearance only. Then physically describe imitation video: what moves, how, where, camera, timing. NO style/color/lighting/mood.
+- [UNDERSTAND]: Map imitation's physical patterns to reference subjects. Concrete mapping per body part/object.
+- [EXECUTE]: Reference subjects performing imitation's movements. Same positions, same camera, same timing.
+- [PRESERVE]: Reference subject appearance/identity. Imitation's movement patterns, layout, camera, timing.
+- [FINAL_PROMPT]: Video paragraph (4-8 sentences). Reference subjects with imitation's physical actions. WHAT moves HOW WHERE at WHAT pace. NO style/mood.
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
+
+RVIM2V = """Reference video frames and imitation video frames provided.
+
+Original description: "{original_text}"
+
+Reference video = scene/subjects to keep. Imitation video = physical template (actions, camera, layout, timing).
+
+Analyze imitation for what moves/how/where/camera/timing. Transfer to reference. Physical actions only. NO style/mood/color/lighting.
+
+RULES:
+- [OBSERVATION]: Describe reference video — scene, subjects, actions, positions, camera. Then physically describe imitation video: what moves, how, where, camera, timing. NO style.
+- [UNDERSTAND]: Map imitation's physical patterns to reference scene. Concrete mapping.
+- [EXECUTE]: Reference video's scene/subjects + imitation's movements, camera, layout, timing.
+- [PRESERVE]: Reference subjects/identities. Imitation's movement patterns, positions, camera, timing.
+- [FINAL_PROMPT]: Video paragraph (4-8 sentences). Reference scene with imitation's physical actions. WHAT moves HOW WHERE at WHAT pace. NO style.
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
+
+VIIM2V = """Source video frames and imitation video frames provided.
+
+User instruction: "{user_prompt}"
+
+Source video = scene/subjects to keep. Imitation video = physical template (actions, camera, layout, timing).
+
+Analyze imitation for what moves/how/where/camera/timing. Transfer to source. Physical actions only. NO style/mood/color/lighting.
+
+RULES:
+- [OBSERVATION]: Describe source video — scene, subjects, actions, positions, camera. Then physically describe imitation video: what moves, how, where, camera, timing. NO style.
+- [UNDERSTAND]: Map imitation's physical patterns to source. Concrete mapping.
+- [EXECUTE]: Source video's scene/subjects + imitation's movements, camera, layout, timing.
+- [PRESERVE]: Source subjects/identities. Imitation's movement patterns, positions, camera, timing.
+- [FINAL_PROMPT]: Video paragraph (4-8 sentences). Source scene with imitation's physical actions. WHAT moves HOW WHERE at WHAT pace. NO style.
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
+
+TIM2V = """Imitation video frames provided.
+
+User request: "{user_prompt}"
+
+Watch the imitation video CLOSELY. Identify specific physical details:
+
+1. WHAT MOVES: Which body parts or objects are in motion? Which are stationary?
+2. HOW IT MOVES: Direction (left-right? up-down? circular?) Speed (fast? slow? rhythmic?) Pattern (continuous? intermittent? random?)
+3. POSITIONS: Where is each subject in frame? Their spatial arrangement and distances.
+4. CAMERA: Is the camera moving? How? Static? Pushing in/out? Panning? Tilting?
+5. TIMING: What is the rhythm and pace of the motion? How long do movements last?
+
+Then TRANSFER these specific physical patterns onto the user's request.
+
+IMPORTANT — do NOT describe "style" or "mood". Describe what PHYSICALLY happens in the video, then physically apply it to new subjects.
+
+EXAMPLES of correct content mapping:
+- Flowers sway left-to-right, flower heads move but stems are still → user's subjects should sway left-to-right, their heads move but bodies stay still
+- Camera slowly pushes in at constant speed over 5 seconds → same push-in speed and duration
+- Three subjects clustered center-left, one offset right-center → same spatial arrangement
+- Subjects bob up-down once every 2 seconds in a rhythmic cycle → same bobbing rhythm
+
+RULES:
+- [OBSERVATION]: Physically describe the imitation video. ONLY talk about what you SEE: which objects move, HOW they move (direction/speed/pattern), WHERE they are in frame, HOW the camera moves. DO NOT describe colors, lighting, mood, or atmosphere.
+- [UNDERSTAND]: Map each physical pattern from the imitation onto the user's request. "The flower heads that sway left-right → the cats' heads should sway left-right. The stems that stay still → the cats' bodies stay still. The stationary camera → same stationary camera."
+- [EXECUTE]: Plan the new video by applying the extracted physical patterns to the user's subjects. Same motions, same positions, same camera, same timing.
+- [PRESERVE]: Movement patterns, positions, camera behavior and timing from the imitation.
+- [FINAL_PROMPT]: Write a descriptive video paragraph (4-8 sentences). Describe the user's subjects with the imitation's exact physical actions. Say WHAT moves, HOW, WHERE, and at WHAT pace. DO NOT describe style or mood.
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
+
 class Qwen35PromptEnhancer:
     CATEGORY = "Bernini"
     FUNCTION = "enhance"
-    RETURN_TYPES = ("STRING", "STRING")
-    RETURN_NAMES = ("enhanced_prompt", "structured_plan")
+    RETURN_TYPES = ("STRING", "STRING", "IMAGE", "IMAGE", "IMAGE", "IMAGE", "IMAGE")
+    RETURN_NAMES = ("enhanced_prompt", "structured_plan",
+                    "source_video", "reference_video",
+                    "reference_image_0", "reference_image_1", "reference_image_2")
     TASKS = ["t2v","t2i","v2v","mv2v","i2i","i2v","ads2v","vi2v","r2v","r2i","rv2v","vrc2v"]
 
     @classmethod
@@ -324,6 +484,7 @@ class Qwen35PromptEnhancer:
 
         v0 = (torch.cuda.memory_allocated() / 1048576) if torch.cuda.is_available() else 0
         t0 = time.time()
+        print(f"[Qwen35PE] {task_type} order={order} n_imgs={len(imgs)} prompt_len={len(prompt)}", flush=True)
         mllm = _MLLM(mp, mm, n_ctx, n_gpu_layers, seed, thinking_mode)
         try:
             result = mllm.chat(msgs, mt=max_tokens, temp=temperature, rp=repeat_penalty)
@@ -349,7 +510,9 @@ class Qwen35PromptEnhancer:
         else:
             desc = result
             plan = "[Direct]"
-        return (desc or "", plan or "")
+        return (desc or "", plan or "",
+                source_video, reference_video,
+                reference_image_0, reference_image_1, reference_image_2)
 
 
 NODE_CLASS_MAPPINGS = {"Qwen35PromptEnhancer": Qwen35PromptEnhancer}
