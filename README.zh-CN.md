@@ -49,8 +49,6 @@
 
 输入 `reference_image_0`（首帧）和 `reference_image_1`（尾帧），生成从首帧到尾帧的连续视频 prompt。图片以 `START-FRAME` 和 `END-FRAME` 标签发送给模型。
 
-搭配 WanVideo 使用时，将首尾帧同时接入 `WanFirstLastFrameToVideo` 的 `start_image` / `end_image` 实现像素级帧锚定。可选配合 `Wan22_FFGO-LoRA` 增强多图参考保真度。
-
 ## 安装
 
 ```bash

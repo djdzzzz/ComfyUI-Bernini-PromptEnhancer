@@ -53,8 +53,6 @@ Controlled by `video_frames` (1–16). Negligible CPU overhead (numpy frame-diff
 
 Generates a prompt describing the continuous video between a start frame (`reference_image_0`) and an end frame (`reference_image_1`). Reference images are labeled `START-FRAME` and `END-FRAME` explicitly in the model input.
 
-For pixel-level anchoring with WanVideo, connect the same images to `WanFirstLastFrameToVideo`'s `start_image` and `end_image` inputs. Can also pair with `Wan22_FFGO-LoRA` for better multi-image fidelity.
-
 ## Installation
 
 ```bash
