@@ -157,9 +157,16 @@ def _build_msgs(sp, ut, imgs, labels=None):
     if not imgs: return [{"role": "system", "content": sp}, {"role": "user", "content": ut}]
     if labels is None: labels = [str(i) for i in range(len(imgs))]
     c = []
+    prev_pfx = None
     for i, b in enumerate(imgs):
-        c.append({"type": "text", "text": f"[{labels[i]}]:\n"})
+        cur = labels[i]
+        pfx = cur.split("-")[0]
+        # Insert separator between image groups (Source → Ref → RefVid)
+        if prev_pfx is not None and pfx != prev_pfx:
+            c.append({"type": "text", "text": "\n---\n"})
+        c.append({"type": "text", "text": f"[{cur}]:\n"})
         c.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b}"}})
+        prev_pfx = pfx
     c.append({"type": "text", "text": "\n" + ut})
     return [{"role": "system", "content": sp}, {"role": "user", "content": c}]
 
@@ -179,11 +186,12 @@ def _route(tt, prompt, nr):
         "r2i":   (ds, R2I.format(image_num=n, original_text=prompt), "ref"),
         "rv2v":  (ds, VR2V.format(image_num=n, image_num_1=n-1, original_text=prompt), "video+ref"),
         "vrc2v": (ds, VR2V.format(image_num=n, image_num_1=n-1, original_text=prompt), "video+ref"),
+        "r2v_motion": (ds, R2V_MOTION.format(image_num=n, original_text=prompt), "video+ref"),
     }
     sp, ut, order = r.get(tt, (ds, prompt, "none"))
     # For visual tasks: append structured plan request with delimiter.
     # Skip tasks that already have [FINAL_PROMPT] built into their template.
-    if order != "none" and tt not in ("v2v", "mv2v", "r2v", "r2i", "rv2v", "vrc2v", "vi2v", "ads2v", "i2v"):
+    if order != "none" and tt not in ("v2v", "mv2v", "r2v", "r2i", "rv2v", "vrc2v", "vi2v", "ads2v", "i2v", "r2v_motion"):
         ut += PLAN_SUFFIX
     return sp, ut, order
 
@@ -217,13 +225,16 @@ class BerniniMLLMPromptEnhancer:
                     "source_video", "reference_video",
                     "reference_image_0", "reference_image_1", "reference_image_2")
     TASKS = ["t2v", "t2i", "v2v", "mv2v", "i2i", "i2v", "ads2v", "vi2v", "r2v", "r2i", "rv2v", "vrc2v", "fl2v"]
+    # Valid task+variant combinations
+    _VALID_VARIANTS = {"r2v": ["motion"]}
 
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
             "model": (_list_models(False) or ["<no .gguf>"],),
             "mmproj": (["<none>"] + _list_models(True),),
-            "task_type": (cls.TASKS, {"default": "v2v"}),
+            "task_type": (["t2v", "t2i", "v2v", "mv2v", "i2i", "i2v", "ads2v", "vi2v", "r2v", "r2i", "rv2v", "vrc2v", "fl2v"], {"default": "v2v"}),
+            "variant": (["none", "motion (r2v)"], {"default": "none"}),
             "template_mode": (["official", "structured"], {"default": "structured"}),
             "prompt": ("STRING", {"multiline": True, "default": ""}),
             "temperature": ("FLOAT", {"default": 0.6, "min": 0.0, "max": 2.0, "step": 0.05}),
@@ -240,7 +251,7 @@ class BerniniMLLMPromptEnhancer:
             "reference_image_0": ("IMAGE",), "reference_image_1": ("IMAGE",), "reference_image_2": ("IMAGE",),
         }}
 
-    def enhance(self, model, mmproj, task_type, template_mode, prompt,
+    def enhance(self, model, mmproj, task_type, variant, template_mode, prompt,
                 temperature, repeat_penalty, seed,
                 n_ctx, n_gpu_layers, max_tokens, video_frames, image_max_side, smart_frames,
                 source_video=None, reference_video=None,
@@ -254,6 +265,7 @@ class BerniniMLLMPromptEnhancer:
             "rv2v": "edit with reference", "vrc2v": "edit with reference",
             "r2v": "generate a video", "r2i": "generate an image",
             "fl2v": "generate video from start to end frame",
+            "r2v_motion": "ref character + source motion → new video",
         }
         if not raw:
             raw = _defaults.get(task_type, "describe and enhance")
@@ -274,27 +286,53 @@ class BerniniMLLMPromptEnhancer:
                 ref.append(p[0])
                 ref_slots.append(idx)
 
-        sp, ut, order = (_route_official if template_mode == "official" else _route)(task_type, prompt, len(ref))
-        labels = None
+        v = variant.split()[0]  # strip parenthetical label "motion (r2v)" → "motion"
+        allowed = self._VALID_VARIANTS.get(task_type, [])
+        effective_task = f"{task_type}_{v}" if v != "none" and v in allowed else task_type
+        sp, ut, order = (_route_official if template_mode == "official" else _route)(effective_task, prompt, len(ref))
         imgs_src  = [_b64(p, image_max_side) for p in src]
         imgs_ref  = [_b64(p, image_max_side) for p in ref]
         imgs_rvid = [_b64(p, image_max_side) for p in rvid]
-        if order == "ref":
-            imgs = imgs_ref
-            if task_type == "fl2v" and len(imgs_ref) >= 2:
-                labels = ["START-FRAME", "END-FRAME"]
-            else:
-                labels = [f"Ref-{ref_slots[i]}" for i in range(len(imgs_ref))]
-        else:
-            imgs = {"none": [], "video": imgs_src + imgs_rvid,
-                "ref": imgs_ref + imgs_rvid,
-                "video+ref": imgs_src + imgs_ref + imgs_rvid,
-                "ref_or_first": (imgs_ref or imgs_src[:1]) + imgs_rvid}[order]
+
         if order == "video+ref":
-            labels = [f"Source-{i}" for i in range(len(imgs_src))] + \
-                     [f"Ref-{ref_slots[i]}"   for i in range(len(imgs_ref))]  + \
-                     [f"RefVid-{i}" for i in range(len(imgs_rvid))]
-        msgs = _build_msgs(sp, ut, imgs, labels)
+            # Build separate messages: source frames → reference images → instruction
+            # This prevents Qwen-VL from flattening all images into one undifferentiated group.
+            src_content = []
+            for i, b in enumerate(imgs_src):
+                src_content.append({"type": "text", "text": f"[Source-{i}]:\n"})
+                src_content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b}"}})
+            src_content.append({"type": "text", "text": "\nAbove are SOURCE video frames."})
+
+            ref_content = []
+            for i, b in enumerate(imgs_ref):
+                slot = ref_slots[i]
+                ref_content.append({"type": "text", "text": f"[Ref-{slot}]:\n"})
+                ref_content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b}"}})
+            if imgs_rvid:
+                for i, b in enumerate(imgs_rvid):
+                    ref_content.append({"type": "text", "text": f"[RefVid-{i}]:\n"})
+                    ref_content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b}"}})
+            ref_content.append({"type": "text", "text": "\nAbove are REFERENCE images. Observe them independently from source frames."})
+
+            msgs = [
+                {"role": "system", "content": sp},
+                {"role": "user", "content": src_content},
+                {"role": "user", "content": ref_content},
+                {"role": "user", "content": ut},
+            ]
+        else:
+            labels = None
+            if order == "ref":
+                imgs = imgs_ref
+                if task_type == "fl2v" and len(imgs_ref) >= 2:
+                    labels = ["START-FRAME", "END-FRAME"]
+                else:
+                    labels = [f"Ref-{ref_slots[i]}" for i in range(len(imgs_ref))]
+            else:
+                imgs = {"none": [], "video": imgs_src + imgs_rvid,
+                    "ref": imgs_ref + imgs_rvid,
+                    "ref_or_first": (imgs_ref or imgs_src[:1]) + imgs_rvid}[order]
+            msgs = _build_msgs(sp, ut, imgs, labels)
         print(f"[BerniniPE] {task_type} order={order} images={len(imgs)} prompt_len={len(prompt)}", flush=True)
 
         v0 = (torch.cuda.memory_allocated() / 1048576) if torch.cuda.is_available() else 0
@@ -454,16 +492,35 @@ RULES:
 [PRESERVE]
 [FINAL_PROMPT]"""  # noqa: E501
 
-VR2V = """You are a video editing planner. Source video frames and {image_num} reference image(s) provided.
+R2V_MOTION = """You are a character + motion planner. Source video frames and {image_num} reference image(s) provided.
+IMPORTANT: [Source-X] frames provide MOTION only (body movements, poses, timing, camera). [Ref-X] images provide CHARACTER identity (appearance, clothing, features). They serve different roles — do NOT confuse them.
 
 User instruction: {original_text}
 
 RULES:
-- [OBSERVATION]: Describe the source video (scene, subjects, actions, lighting, weather, camera, mood). Then describe EACH reference image independently — use the Ref-X label shown with each image. Include what it shows, lighting, colors, atmosphere, style, any notable details. NEVER write "similar to Ref-X".
+- [OBSERVATION]: Describe the CHARACTER from each reference image — appearance, clothing, hair, expression, style, any notable details. Then describe the MOTION from source video — what movements happen, pose sequence, camera work, timing. Use labels: describe [Ref-X] for character, [Source-X] for motion. Do NOT describe character wearing clothing from source or vice versa.
+- [UNDERSTAND]: The character identity comes from reference images. The motion/action comes from source video. The setting/scene comes from the instruction. Explain how these three combine.
+- [EXECUTE]: Plan a video where the REFERENCE character performs the SOURCE motion in the described setting. Match body poses and timing to source. Do NOT import source video's character or reference image's background.
+- [PRESERVE]: Character identity from reference. Motion patterns and timing from source. Source scene/camera if specified.
+- [FINAL_PROMPT]: Write a descriptive video paragraph (4-8 sentences). Describe the reference character performing the source motion in the described setting as one cohesive scene — NOT as separate elements.
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
+
+VR2V = """You are a video editing planner. Source video frames and {image_num} reference image(s) provided.
+IMPORTANT: Images labeled [Source-X] are SOURCE video frames. Images labeled [Ref-X] are REFERENCE images. They are separate inputs — observe each group independently. Do NOT treat reference images as additional source frames.
+
+User instruction: {original_text}
+
+RULES:
+- [OBSERVATION]: Describe the source video (scene, subjects, actions, lighting, weather, camera, mood). Then describe EACH reference image independently — use the Ref-X label shown with each image. Include what it shows, lighting, colors, atmosphere, style, any notable details. You MUST include a [Ref-X] block for each reference image. NEVER write "similar to Ref-X".
 - [UNDERSTAND]: Explain what the instruction means based on your observations. What changes? What stays?
-- [EXECUTE]: Plan the visual changes step by step. Be specific.
-- [PRESERVE]: List everything that stays exactly the same.
-- [FINAL_PROMPT]: Write a descriptive video paragraph (4-8 sentences). Describe the final scene as if narrating a film — NOT instructions, NOT a checklist, NOT step-by-step execution. Only describe what the viewer sees.
+- [EXECUTE]: Plan the visual changes step by step. Be specific. Use reference images ONLY for the subjects/objects being replaced or added — do NOT import reference image backgrounds, settings, or unrelated elements into the source video.
+- [PRESERVE]: List only SOURCE video elements that stay unchanged — scene, lighting, camera, environment. Do NOT list reference image elements here.
+- [FINAL_PROMPT]: Write a descriptive video paragraph (4-8 sentences). Describe the final scene as if narrating a film — NOT instructions, NOT a checklist, NOT step-by-step execution. Only describe what the viewer sees after all changes from [EXECUTE] are applied. Describe the source subjects in their new setting as one cohesive scene — do NOT narrate reference image contents as if they were separate or independent.
 
 [OBSERVATION]
 [UNDERSTAND]
@@ -727,3 +784,4 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "BerniniMLLMPromptEnhancer": "Bernini MLLM Prompt Enhancer (GGUF)",
     "Qwen35PromptEnhancer": "Qwen3.5 Prompt Enhancer (GGUF)",
 }
+WEB_DIRECTORY = "./js"

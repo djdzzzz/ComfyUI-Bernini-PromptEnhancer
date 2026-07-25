@@ -4,7 +4,7 @@ ComfyUI 的自定义节点包，配合字节跳动 Bernini，基于 VLLM 和语�
 
 ## 核心特性
 
-- **13 种任务类型** — `t2v`、`t2i`、`v2v`、`mv2v`、`i2i`、`i2v`、`ads2v`、`vi2v`、`r2v`、`r2i`、`rv2v`、`vrc2v`、`fl2v`
+- **13+n 种任务类型** — 13 种核心任务 + 专用轻量任务
 - **智能选帧** — `smart_frames` 开关用帧间差异采样替代均匀抽取，给模型更高信息密度
 - **首尾帧过渡** — `fl2v` 任务生成从首帧到尾帧的过渡 prompt
 - **GGUF 本地推理** — 消费级 GPU，llama.cpp 子进程驱动，无需联网
@@ -31,6 +31,12 @@ ComfyUI 的自定义节点包，配合字节跳动 Bernini，基于 VLLM 和语�
 | rv2v | ref_video + ref_images + prompt | 参考视频+参考图编辑 |
 | vrc2v | source_video + ref_images + prompt | 视频+参考图编辑（别名） |
 | fl2v | ref_image_0 + ref_image_1 + prompt | 首帧到尾帧过渡描述 |
+
+**专用任务** — 针对特定混合场景，明确各输入的角色分配：
+
+| 任务 | 使用的输入 | 角色分配 | 说明 |
+|------|-----------|----------|------|
+| r2v_motion | source_video + ref_images + prompt | 参考图=角色, 源视频=动作 | 参考图角色以源视频动作在描述的场景中生成视频 |
 
 所有任务均接受可选的用户 `prompt`，留空时使用默认指令。
 

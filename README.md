@@ -8,7 +8,7 @@ Based on [Bernini: Latent Semantic Planning for Video Diffusion](https://arxiv.o
 
 ## Features
 
-- **13 task types** — `t2v`, `t2i`, `v2v`, `mv2v`, `i2i`, `i2v`, `ads2v`, `vi2v`, `r2v`, `r2i`, `rv2v`, `vrc2v`, `fl2v`
+- **13+n task types** — 13 core tasks + specialized lightweight tasks
 - **Smart frame selection** — `smart_frames` toggle uses frame-difference sampling instead of uniform spacing, giving the MLLM higher information density
 - **First/Last frame transition** — `fl2v` task generates a prompt describing the video between a start frame and end frame
 - **GGUF local inference** — runs entirely offline on consumer GPUs via llama.cpp subprocess
@@ -35,6 +35,12 @@ Based on [Bernini: Latent Semantic Planning for Video Diffusion](https://arxiv.o
 | rv2v | ref_video + ref_images + prompt | Ref video + ref images edit |
 | vrc2v | source_video + ref_images + prompt | Video + ref images edit (alias) |
 | fl2v | ref_image_0 + ref_image_1 + prompt | First-to-last frame transition |
+
+**Specialized tasks** — for specific mixed-source scenarios, with explicit role assignment per input:
+
+| Task | Inputs used | Role assignment | Description |
+|------|-------------|-----------------|-------------|
+| r2v_motion | source_video + ref_images + prompt | ref=character, source=motion | Ref character performs source motion in described setting |
 
 All tasks accept an optional user `prompt`. When left empty, a default instruction is used.
 
