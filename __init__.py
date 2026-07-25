@@ -376,7 +376,9 @@ RULES:
 - [UNDERSTAND]: What the user wants to change, add, or emphasize. Map the instruction to specific physical modifications.
 - [EXECUTE]: Plan the enhanced video. Keep source's physical patterns. Apply user's changes as specific physical actions.
 - [PRESERVE]: Key physical elements from source that must stay consistent. Changes from user instruction.
-- [FINAL_PROMPT]: Descriptive video paragraph (4-8 sentences). Describe the enhanced video with specific physical actions and details. NO vague style or mood language.
+- [FINAL_PROMPT]: Descriptive video paragraph (4-8 sentences). Describe the enhanced video with specific physical actions and details. NO vague style or mood language. Do NOT reference frame numbers, indices, or [0]-[N] notation — describe motion naturally, as one continuous action.
+
+IMPORTANT: [FINAL_PROMPT] must be a clean, self-contained paragraph suitable as a direct prompt for a video generation model. No frame indexing.
 
 [OBSERVATION]
 [UNDERSTAND]
