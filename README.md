@@ -2,7 +2,7 @@
 
 [中文文档](README.zh-CN.md)
 
-A ComfyUI custom node package that brings **ByteDance Bernini**'s MLLM-based semantic planning to local prompt enhancement via **local GGUF inference** — no cloud API required. Outputs enhanced prompts ready for Wan2.2 and other video/image diffusion models.
+A ComfyUI custom node package that pairs ByteDance Bernini's VLLM and semantic planning with image/video understanding and natural language reasoning for local prompt enhancement, powered by local GGUF inference — no cloud API required. Outputs high-quality enhanced prompts.
 
 Based on [Bernini: Latent Semantic Planning for Video Diffusion](https://arxiv.org/abs/2605.22344) and the [Bernini-Diffusers](https://huggingface.co/ByteDance/Bernini-Diffusers) model.
 

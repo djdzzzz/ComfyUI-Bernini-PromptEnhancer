@@ -1,6 +1,6 @@
 # ComfyUI-Bernini-PromptEnhancer
 
-本地 GGUF 推理的 Bernini MLLM 语义规划器，将图像/视频理解与自然语言规划结合，输出增强后的高质量 prompt，可直接对接 Wan2.2 等视频/图像扩散模型。
+ComfyUI 的自定义节点包，配合字节跳动 Bernini，基于 VLLM 和语义规划将图像/视频理解与自然语言规划结合引入本地提示增强，通过本地 GGUF 推理实现——无需云 API。输出增强后的高质量 prompt。
 
 ## 核心特性
 
