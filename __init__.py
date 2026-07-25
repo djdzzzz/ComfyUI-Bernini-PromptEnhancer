@@ -128,16 +128,23 @@ def _sample(p, k):
     return [p[max(0, min(n-1, round(i*(n-1)/max(k-1,1))))] for i in range(k)]
 
 def _smart_sample(p, k):
-    """Select k frames with highest inter-frame change magnitude."""
+    """Select k frames: always keep first frame, fill rest by change magnitude using thumbnail diff."""
     n = len(p)
     if n <= k: return p
-    diffs = [0.0]
-    arr = [np.asarray(im, np.float32) for im in p]
-    for i in range(1, n):
-        diffs.append(np.abs(arr[i] - arr[i-1]).mean())
-    ranked = sorted(range(n), key=lambda i: diffs[i], reverse=True)
-    picked = sorted(ranked[:k])
-    return [p[i] for i in picked]
+    # Thumbnail downscale for noise-resistant diffing
+    ts = 64
+    thumbs = [np.asarray(im.resize((ts, ts), Image.NEAREST), np.float32) for im in p]
+    # Diff between adjacent frames
+    diffs = [np.abs(thumbs[i] - thumbs[i-1]).mean() for i in range(1, n)]
+    # Score each frame 1..n-1 by max of its incoming and outgoing diff (last frame: incoming only)
+    scores = [(max(diffs[i-1], diffs[i]), i) if i < n-1 else (diffs[i-1], i) for i in range(1, n)]
+    scores.sort(key=lambda x: x[0], reverse=True)
+    # Always keep first frame
+    picked = {0}
+    for _, i in scores:
+        if len(picked) >= k: break
+        picked.add(i)
+    return [p[i] for i in sorted(picked)]
 
 def _b64(img, ms=0):
     if ms and max(img.size) > ms:
@@ -176,7 +183,7 @@ def _route(tt, prompt, nr):
     sp, ut, order = r.get(tt, (ds, prompt, "none"))
     # For visual tasks: append structured plan request with delimiter.
     # Skip tasks that already have [FINAL_PROMPT] built into their template.
-    if order != "none" and tt not in ("r2v", "r2i", "rv2v", "vrc2v", "vi2v", "ads2v", "i2v"):
+    if order != "none" and tt not in ("v2v", "mv2v", "r2v", "r2i", "rv2v", "vrc2v", "vi2v", "ads2v", "i2v"):
         ut += PLAN_SUFFIX
     return sp, ut, order
 

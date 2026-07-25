@@ -40,14 +40,14 @@ All tasks accept an optional user `prompt`. When left empty, a default instructi
 
 ### Smart frame sampling
 
-Default frame selection is uniform (evenly spaced). Enable `smart_frames` to pick frames with the highest inter-frame pixel change:
+Default frame selection is uniform (evenly spaced). Enable `smart_frames` to use thumbnail-based frame-diff sampling: the first frame is always kept, remaining slots are filled by the highest inter-frame change magnitude. Thumbnail downscale (64x64) naturally resists noise and compression artifacts.
 
 ```
 Uniform: 30 frames, pick 5 → frames 0, 7, 15, 22, 29
-Smart:   30 frames, pick 5 → the 5 frames where most action happens
+Smart:   30 frames, pick 5 → frame 0 (fixed) + the 4 frames with highest change
 ```
 
-Controlled by `video_frames` (1–16). Negligible CPU overhead (numpy frame-diff).
+Controlled by `video_frames` (1–16).
 
 ### fl2v — First/Last frame transition
 
