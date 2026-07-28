@@ -176,8 +176,13 @@ def _route(tt, prompt, nr):
     r = {
         "t2v":   (T2V, prompt, "none"),
         "t2i":   (T2I, prompt, "none"),
+        "t2v_cinematic": (T2V_CINEMATIC.format(user_prompt=prompt), prompt, "none"),
+        "t2v_anime":     (T2V_ANIME.format(user_prompt=prompt), prompt, "none"),
+        "t2v_realistic": (T2V_REALISTIC.format(user_prompt=prompt), prompt, "none"),
+        "t2v_director": (T2V_DIRECTOR.format(user_prompt=prompt), prompt, "none"),
         "v2v":   (ds, V2V.format(user_prompt=prompt), "video"),
         "mv2v":  (ds, V2V.format(user_prompt=prompt), "video"),
+        "v2v_storyboard": (ds, V2V_STORYBOARD.format(user_prompt=prompt), "video"),
         "i2i":   (ds, I2I.format(user_prompt=prompt), "ref"),
         "i2v":   (I2V_SP, I2V.format(user_prompt=prompt, image_num=n), "ref_or_first"),
         "ads2v": (ds, ADS2V.format(user_prompt=prompt), "video"),
@@ -186,12 +191,13 @@ def _route(tt, prompt, nr):
         "r2i":   (ds, R2I.format(image_num=n, original_text=prompt), "ref"),
         "rv2v":  (ds, VR2V.format(image_num=n, image_num_1=n-1, original_text=prompt), "video+ref"),
         "vrc2v": (ds, VR2V.format(image_num=n, image_num_1=n-1, original_text=prompt), "video+ref"),
+        "rv2v_3dreal": (ds, R2V_3DREAL.format(image_num=n, original_text=prompt), "video+ref"),
         "r2v_motion": (ds, R2V_MOTION.format(image_num=n, original_text=prompt), "video+ref"),
     }
     sp, ut, order = r.get(tt, (ds, prompt, "none"))
     # For visual tasks: append structured plan request with delimiter.
     # Skip tasks that already have [FINAL_PROMPT] built into their template.
-    if order != "none" and tt not in ("v2v", "mv2v", "r2v", "r2i", "rv2v", "vrc2v", "vi2v", "ads2v", "i2v", "r2v_motion"):
+    if order != "none" and tt not in ("v2v", "mv2v", "r2v", "r2i", "rv2v", "vrc2v", "vi2v", "ads2v", "i2v", "r2v_motion", "rv2v_3dreal", "v2v_storyboard"):
         ut += PLAN_SUFFIX
     return sp, ut, order
 
@@ -226,7 +232,7 @@ class BerniniMLLMPromptEnhancer:
                     "reference_image_0", "reference_image_1", "reference_image_2")
     TASKS = ["t2v", "t2i", "v2v", "mv2v", "i2i", "i2v", "ads2v", "vi2v", "r2v", "r2i", "rv2v", "vrc2v", "fl2v"]
     # Valid task+variant combinations
-    _VALID_VARIANTS = {"r2v": ["motion"]}
+    _VALID_VARIANTS = {"r2v": ["motion"], "t2v": ["cinematic", "anime", "realistic", "director"], "rv2v": ["3dreal"], "v2v": ["storyboard"]}
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -234,7 +240,7 @@ class BerniniMLLMPromptEnhancer:
             "model": (_list_models(False) or ["<no .gguf>"],),
             "mmproj": (["<none>"] + _list_models(True),),
             "task_type": (["t2v", "t2i", "v2v", "mv2v", "i2i", "i2v", "ads2v", "vi2v", "r2v", "r2i", "rv2v", "vrc2v", "fl2v"], {"default": "v2v"}),
-            "variant": (["none", "motion (r2v)"], {"default": "none"}),
+            "variant": (["none", "motion (r2v)", "storyboard (v2v)", "cinematic (t2v)", "anime (t2v)", "realistic (t2v)", "director (t2v)", "3dreal (rv2v)"], {"default": "none"}),
             "template_mode": (["official", "structured"], {"default": "structured"}),
             "prompt": ("STRING", {"multiline": True, "default": ""}),
             "temperature": ("FLOAT", {"default": 0.6, "min": 0.0, "max": 2.0, "step": 0.05}),
@@ -259,13 +265,18 @@ class BerniniMLLMPromptEnhancer:
         raw = prompt.strip()
         # Default instructions when user leaves prompt empty
         _defaults = {
-            "v2v": "enhance the video", "mv2v": "enhance the video",
+            "v2v_storyboard": "multi-shot storyboard from source video",
             "i2i": "enhance the image", "i2v": "generate a video",
             "ads2v": "identify ad placement", "vi2v": "edit with reference",
             "rv2v": "edit with reference", "vrc2v": "edit with reference",
             "r2v": "generate a video", "r2i": "generate an image",
             "fl2v": "generate video from start to end frame",
             "r2v_motion": "ref character + source motion → new video",
+            "t2v_cinematic": "cinematic style video generation",
+            "t2v_anime": "anime style video generation",
+            "t2v_realistic": "photorealistic video generation",
+            "t2v_director": "precise camera-directed video generation",
+            "rv2v_3dreal": "3D render → photorealistic video",
         }
         if not raw:
             raw = _defaults.get(task_type, "describe and enhance")
@@ -394,6 +405,80 @@ T2I = """你是一位电影导演。根据用户的文本描述，从电影美�
 3. 注意：静态图像，不规划运动/摄像机运动，只规划静态状态
 输出：一段60-200字的英文prompt。只输出prompt。"""
 
+T2V_CINEMATIC = """You are a cinematic video planner. Enhance the user's description with professional film aesthetics.
+
+User prompt: {user_prompt}
+
+Style: Cinematic — 35mm anamorphic film, dramatic contrast lighting, teal/orange color grade, shallow depth of field, smooth dolly/tracking camera moves, subtle film grain.
+
+RULES:
+- [OBSERVATION]: Describe the scene from the user's prompt — subjects, setting, action.
+- [UNDERSTAND]: How the cinematic style elevates this specific scene.
+- [EXECUTE]: Plan camera movement, lighting, composition, and color palette.
+- [PRESERVE]: The user's original subject content and action.
+- [FINAL_PROMPT]: Descriptive video paragraph (4-8 sentences). Cinematic visual language — lenses, lighting, color, camera. NO vague mood words.
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
+
+T2V_ANIME = """You are an anime-style video planner. Enhance the user's description with Japanese animation aesthetics.
+
+User prompt: {user_prompt}
+
+Style: Anime — cel-shaded or painterly look, vibrant color palette, bold outlines, dramatic composition, lens flare, floating particles, painterly skies and backgrounds.
+
+RULES:
+- [OBSERVATION]: Describe the scene from the user's prompt — subjects, setting, action.
+- [UNDERSTAND]: How the anime aesthetic transforms this specific scene.
+- [EXECUTE]: Plan the anime-style visual elements — color, composition, atmospheric effects, animation timing.
+- [PRESERVE]: The user's original subject content and action.
+- [FINAL_PROMPT]: Descriptive video paragraph (4-8 sentences). Anime visual language — style, color, atmosphere, animation feel. NO vague mood words.
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
+
+T2V_REALISTIC = """You are a photorealistic video planner. Enhance the user's description with hyper-realistic visual details.
+
+User prompt: {user_prompt}
+
+Style: Photorealistic — natural lighting, accurate physics, detailed textures and materials, realistic skin and fabric rendering, depth of field, natural camera behavior.
+
+RULES:
+- [OBSERVATION]: Describe the scene from the user's prompt — subjects, setting, action.
+- [UNDERSTAND]: How photorealism grounds this specific scene in visual reality.
+- [EXECUTE]: Plan realistic lighting, physics, textures, camera behavior.
+- [PRESERVE]: The user's original subject content and action.
+- [FINAL_PROMPT]: Descriptive video paragraph (4-8 sentences). Photorealistic visual language — lighting physics, material detail, natural motion. NO vague mood words.
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
+
+T2V_DIRECTOR = """You are a film director and cinematographer. Plan a video with precise camera direction and shot composition from the user's description.
+
+User prompt: {user_prompt}
+
+RULES:
+- [OBSERVATION]: Analyze the user's scene — subjects, action, setting, mood.
+- [UNDERSTAND]: What camera language best tells this story? Shot type, lens, movement, lighting direction.
+- [EXECUTE]: Plan exact cinematography — shot type (close-up/medium/wide/establishing), camera move (dolly/crane/orbit/push/pull/track/pan/tilt/static), lens (focal length, aperture), lighting (source, direction, quality), composition (rule of thirds, leading lines, depth).
+- [PRESERVE]: The user's core subject and action.
+- [FINAL_PROMPT]: Descriptive video paragraph (4-8 sentences). Use precise cinematography language — name the shot, the lens, the camera move, the light. NO vague "cinematic" or "beautiful" — be specific about how the camera sees the scene.
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
+
 V2V = """Source video frames provided.
 
 User instruction: "{user_prompt}"
@@ -417,6 +502,25 @@ RULES:
 - [FINAL_PROMPT]: Descriptive video paragraph (4-8 sentences). Describe the enhanced video with specific physical actions and details. NO vague style or mood language. Do NOT reference frame numbers, indices, or [0]-[N] notation — describe motion naturally, as one continuous action.
 
 IMPORTANT: [FINAL_PROMPT] must be a clean, self-contained paragraph suitable as a direct prompt for a video generation model. No frame indexing.
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
+
+V2V_STORYBOARD = """You are a multi-shot storyboard planner. Source video frames provided.
+
+User instruction: "{user_prompt}"
+
+Analyze the source video for action, subjects, setting, timing, and camera. Then plan THREE distinct camera shots describing the SAME action from DIFFERENT perspectives. Each shot is a complete prompt for a video generation model.
+
+RULES:
+- [OBSERVATION]: Describe the source — subjects, action, setting, lighting, camera, timing.
+- [UNDERSTAND]: How can this single continuous action be captured from three different cinematic angles?
+- [EXECUTE]: Plan SHOT 1 (wide/establishing), SHOT 2 (medium/tracking), SHOT 3 (close-up/detail). For each shot specify: framing, lens, camera movement, what the viewer sees. Shots must differ in perspective — not just the same shot with different words.
+- [PRESERVE]: Source action timing, subjects, setting, and lighting across all three shots.
+- [FINAL_PROMPT]: Output THREE paragraphs labeled [SHOT 1], [SHOT 2], [SHOT 3]. Each 3-5 sentences. Each is a standalone video generation prompt — self-contained with subject, action, setting, camera, and lighting. Different camera perspective for each shot.
 
 [OBSERVATION]
 [UNDERSTAND]
@@ -503,6 +607,24 @@ RULES:
 - [EXECUTE]: Plan a video where the REFERENCE character performs the SOURCE motion in the described setting. Match body poses and timing to source. Do NOT import source video's character or reference image's background.
 - [PRESERVE]: Character identity from reference. Motion patterns and timing from source. Source scene/camera if specified.
 - [FINAL_PROMPT]: Write a descriptive video paragraph (4-8 sentences). Describe the reference character performing the source motion in the described setting as one cohesive scene — NOT as separate elements.
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
+
+R2V_3DREAL = """You are a 3D-to-realistic video planner. Source video frames and {image_num} reference image(s) provided.
+IMPORTANT: [Source-X] is a 3D blockout / clay render — it provides MOTION, CAMERA, LAYOUT, and TIMING only. It is deliberately crude: grey geometry, no textures, no details. [Ref-X] provides TARGET VISUAL QUALITY — appearance, lighting quality, realism level, material detail.
+
+User instruction: {original_text}
+
+RULES:
+- [OBSERVATION]: Describe ONLY the motion structure from the 3D source — what objects move, how fast, camera path, scene layout, timing. DO NOT describe the 3D's visual appearance (materials, lighting, colors, textures — these are all meaningless grey blocks). Then describe the reference image — visual quality, lighting style, material richness, atmospheric detail.
+- [UNDERSTAND]: The 3D source defines WHAT happens (motion/camera blueprint only). The reference defines HOW it should LOOK (full visual fidelity). Goal: erase the grey 3D aesthetic entirely, reconstruct the scene in full photorealism.
+- [EXECUTE]: Plan the realistic video. Use the 3D source as a BLUEPRINT ONLY — extract camera paths, object positions, motion timing and pacing. DISCARD all visual qualities from the source (no grey, no flat shading, no low-poly geometry, no CG look). Fill in real materials, natural lighting, detailed textures from the reference quality benchmark. The source is a wireframe guide, NOT a style reference.
+- [PRESERVE]: Camera movement, object motion, scene layout, timing/pacing from 3D source. Visual quality level, lighting style, material richness from reference. NO visual qualities from the 3D source survive into the final output.
+- [FINAL_PROMPT]: Write a descriptive video paragraph (4-8 sentences). Describe a fully photorealistic scene — real materials, detailed textures, natural lighting, cinematic quality. Reference quality applied to source motion. NO mention of "3D", "clay", "blockout", "grey", "wireframe", "CG", or "low-poly". The source frames do NOT exist in the final scene — only their motion and structure.
 
 [OBSERVATION]
 [UNDERSTAND]

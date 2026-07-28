@@ -231,6 +231,25 @@ RULES:
 [PRESERVE]
 [FINAL_PROMPT]"""
 
+R2V_3DREAL = """You are a 3D-to-realistic video planner. Source video frames and {image_num} reference image(s) provided.
+IMPORTANT: [Source-X] is a 3D blockout / clay render — MOTION, CAMERA, LAYOUT, TIMING only. Crude grey geometry, no textures, no lighting, no colors. [Ref-X] provides TARGET VISUAL QUALITY — appearance, lighting, materials, realism level.
+
+User instruction: {original_text}
+
+RULES:
+- [OBSERVATION]: Describe ONLY the motion structure from the 3D source — what objects move, camera path, layout, timing. DO NOT describe the 3D's visual appearance (it's meaningless grey blocks). Then describe reference — visual quality, lighting, material, atmosphere.
+- [UNDERSTAND]: 3D source = motion/camera BLUEPRINT only. Reference = HOW it should LOOK. The grey 3D aesthetic must be completely erased and replaced.
+- [EXECUTE]: Use 3D source as blueprint only — extract camera paths, object positions, motion timing. DISCARD all visual qualities from source (no grey, no flat shading, no low-poly, no CG look). Fill with real materials, natural lighting, detailed textures from reference benchmark.
+- [PRESERVE]: Camera, motion, layout, timing from 3D source. Visual quality, lighting, material from reference. NO visual qualities from 3D source survive.
+- [FINAL_PROMPT]: Write a descriptive video paragraph (4-8 sentences). Fully photorealistic — real materials, textures, lighting, cinematic quality. NO mention of "3D", "clay", "blockout", "grey", "wireframe", "CG" or "low-poly". The source frames do NOT exist in the final scene.
+- [FINAL_PROMPT]: Descriptive video paragraph (4-8 sentences). Photorealistic version of the 3D animation — real materials, textures, lighting, cinematic quality. NO mention of "3D", "clay", or "blockout".
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
+
 PLAN_SUFFIX = """
 
 RULES:
@@ -247,14 +266,114 @@ RULES:
 [FINAL_PROMPT]"""
 
 
+
+T2V_CINEMATIC = """You are a cinematic video planner. Enhance the user's description with professional film aesthetics.
+
+User prompt: {user_prompt}
+
+Style: Cinematic — 35mm anamorphic film, dramatic contrast lighting, teal/orange color grade, shallow depth of field, smooth dolly/tracking camera moves, subtle film grain.
+
+RULES:
+- [OBSERVATION]: Describe the scene from the user's prompt — subjects, setting, action.
+- [UNDERSTAND]: How the cinematic style elevates this specific scene.
+- [EXECUTE]: Plan camera movement, lighting, composition, and color palette.
+- [PRESERVE]: The user's original subject content and action.
+- [FINAL_PROMPT]: Descriptive video paragraph (4-8 sentences). Cinematic visual language — lenses, lighting, color, camera. NO vague mood words.
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
+
+T2V_ANIME = """You are an anime-style video planner. Enhance the user's description with Japanese animation aesthetics.
+
+User prompt: {user_prompt}
+
+Style: Anime — cel-shaded or painterly look, vibrant color palette, bold outlines, dramatic composition, lens flare, floating particles, painterly skies and backgrounds.
+
+RULES:
+- [OBSERVATION]: Describe the scene from the user's prompt — subjects, setting, action.
+- [UNDERSTAND]: How the anime aesthetic transforms this specific scene.
+- [EXECUTE]: Plan the anime-style visual elements — color, composition, atmospheric effects, animation timing.
+- [PRESERVE]: The user's original subject content and action.
+- [FINAL_PROMPT]: Descriptive video paragraph (4-8 sentences). Anime visual language — style, color, atmosphere, animation feel. NO vague mood words.
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
+
+T2V_REALISTIC = """You are a photorealistic video planner. Enhance the user's description with hyper-realistic visual details.
+
+User prompt: {user_prompt}
+
+Style: Photorealistic — natural lighting, accurate physics, detailed textures and materials, realistic skin and fabric rendering, depth of field, natural camera behavior.
+
+RULES:
+- [OBSERVATION]: Describe the scene from the user's prompt — subjects, setting, action.
+- [UNDERSTAND]: How photorealism grounds this specific scene in visual reality.
+- [EXECUTE]: Plan realistic lighting, physics, textures, camera behavior.
+- [PRESERVE]: The user's original subject content and action.
+- [FINAL_PROMPT]: Descriptive video paragraph (4-8 sentences). Photorealistic visual language — lighting physics, material detail, natural motion. NO vague mood words.
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
+
+T2V_DIRECTOR = """You are a film director and cinematographer. Plan a video with precise camera direction and shot composition from the user's description.
+
+User prompt: {user_prompt}
+
+RULES:
+- [OBSERVATION]: Analyze the user's scene — subjects, action, setting, mood.
+- [UNDERSTAND]: What camera language best tells this story? Shot type, lens, movement, lighting direction.
+- [EXECUTE]: Plan exact cinematography — shot type (close-up/medium/wide/establishing), camera move (dolly/crane/orbit/push/pull/track/pan/tilt/static), lens (focal length, aperture), lighting (source, direction, quality), composition (rule of thirds, leading lines, depth).
+- [PRESERVE]: The user's core subject and action.
+- [FINAL_PROMPT]: Descriptive video paragraph (4-8 sentences). Use precise cinematography language — name the shot, the lens, the camera move, the light. NO vague "cinematic" or "beautiful" — be specific about how the camera sees the scene.
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
+
+V2V_STORYBOARD = """You are a multi-shot storyboard planner. Source video frames provided.
+
+User instruction: "{user_prompt}"
+
+Analyze the source video for action, subjects, setting, timing, and camera. Then plan THREE distinct camera shots describing the SAME action from DIFFERENT perspectives.
+
+RULES:
+- [OBSERVATION]: Describe the source — subjects, action, setting, lighting, camera, timing.
+- [UNDERSTAND]: How can this single action be captured from three different cinematic angles?
+- [EXECUTE]: Plan SHOT 1 (wide/establishing), SHOT 2 (medium/tracking), SHOT 3 (close-up/detail). For each: framing, lens, camera movement, what viewer sees. Shots must differ in perspective.
+- [PRESERVE]: Source action timing, subjects, setting, and lighting across all three shots.
+- [FINAL_PROMPT]: Output THREE paragraphs labeled [SHOT 1], [SHOT 2], [SHOT 3]. Each 3-5 sentences. Each is a standalone video generation prompt — self-contained with subject, action, setting, camera, lighting.
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
+
+
 def _route(tt, prompt, nr):
     n = max(nr, 1)
     ds = SYSTEM
     r = {
         "t2v":   (ds, f'Prompt: "{prompt}". Add cinematic details. Output English prompt only.', "none"),
         "t2i":   (ds, f'Prompt: "{prompt}". Add cinematic details. Output English prompt only.', "none"),
+        "t2v_cinematic": (ds, T2V_CINEMATIC.format(user_prompt=prompt), "none"),
+        "t2v_anime":     (ds, T2V_ANIME.format(user_prompt=prompt), "none"),
+        "t2v_realistic": (ds, T2V_REALISTIC.format(user_prompt=prompt), "none"),
+        "t2v_director": (ds, T2V_DIRECTOR.format(user_prompt=prompt), "none"),
         "v2v":   (ds, V2V.format(user_prompt=prompt), "video"),
         "mv2v":  (ds, V2V.format(user_prompt=prompt), "video"),
+        "v2v_storyboard": (ds, V2V_STORYBOARD.format(user_prompt=prompt), "video"),
         "i2i":   (ds, I2I.format(user_prompt=prompt), "ref"),
         "i2v":   (I2V_SP, I2V.format(user_prompt=prompt, image_num=n), "ref_or_first"),
         "ads2v": (ds, f'Video frames. Ad instruction: "{prompt}". Output ONE English ad placement sentence.', "video"),
@@ -263,11 +382,12 @@ def _route(tt, prompt, nr):
         "r2i":   (ds, R2I.format(image_num=n, original_text=prompt), "ref"),
         "rv2v":  (ds, VR2V.format(image_num=n, image_num_1=n-1, original_text=prompt), "video+ref"),
         "vrc2v": (ds, VR2V.format(image_num=n, image_num_1=n-1, original_text=prompt), "video+ref"),
+        "rv2v_3dreal": (ds, R2V_3DREAL.format(image_num=n, original_text=prompt), "video+ref"),
         "fl2v":  (ds, FL2V.format(original_text=prompt), "ref"),
         "r2v_motion": (ds, R2V_MOTION.format(image_num=n, original_text=prompt), "video+ref"),
     }
     sp, ut, order = r.get(tt, (ds, f'Instruction: "{prompt}". Generate an enhanced prompt.', "none"))
-    if order != "none" and tt not in ("v2v", "mv2v", "r2v", "r2i", "rv2v", "vrc2v", "vi2v", "ads2v", "i2v", "fl2v", "r2v_motion"):
+    if order != "none" and tt not in ("v2v", "mv2v", "r2v", "r2i", "rv2v", "vrc2v", "vi2v", "ads2v", "i2v", "fl2v", "r2v_motion", "rv2v_3dreal", "v2v_storyboard"):
         ut += PLAN_SUFFIX
     return sp, ut, order
 
@@ -480,7 +600,7 @@ class Qwen35PromptEnhancer:
                     "source_video", "reference_video",
                     "reference_image_0", "reference_image_1", "reference_image_2")
     TASKS = ["t2v","t2i","v2v","mv2v","i2i","i2v","ads2v","vi2v","r2v","r2i","rv2v","vrc2v","fl2v"]
-    _VALID_VARIANTS = {"r2v": ["motion"]}
+    _VALID_VARIANTS = {"r2v": ["motion"], "t2v": ["cinematic", "anime", "realistic", "director"], "rv2v": ["3dreal"], "v2v": ["storyboard"]}
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -488,7 +608,7 @@ class Qwen35PromptEnhancer:
             "model": (_list_models(False) or ["<no .gguf>"],),
             "mmproj": (["<none>"] + _list_models(True),),
             "task_type": (["t2v","t2i","v2v","mv2v","i2i","i2v","ads2v","vi2v","r2v","r2i","rv2v","vrc2v","fl2v"], {"default": "v2v"}),
-            "variant": (["none", "motion (r2v)"], {"default": "none"}),
+            "variant": (["none", "motion (r2v)", "storyboard (v2v)", "cinematic (t2v)", "anime (t2v)", "realistic (t2v)", "director (t2v)", "3dreal (rv2v)"], {"default": "none"}),
             "prompt": ("STRING", {"multiline": True, "default": ""}),
             "temperature": ("FLOAT", {"default": 0.6, "min": 0.0, "max": 2.0, "step": 0.05}),
             "repeat_penalty": ("FLOAT", {"default": 1.15, "min": 1.0, "max": 2.0, "step": 0.01}),
@@ -514,12 +634,18 @@ class Qwen35PromptEnhancer:
         raw = prompt.strip()
         _defaults = {
             "v2v":"enhance the video","mv2v":"enhance the video",
+            "v2v_storyboard":"multi-shot storyboard from source video",
             "i2i":"enhance the image","i2v":"generate a video",
             "ads2v":"identify ad placement","vi2v":"edit with reference",
             "rv2v":"edit with reference","vrc2v":"edit with reference",
             "r2v":"generate a video","r2i":"generate an image",
             "fl2v":"generate video from start to end frame",
             "r2v_motion":"ref character + source motion → new video",
+            "t2v_cinematic":"cinematic style video generation",
+            "t2v_anime":"anime style video generation",
+            "t2v_realistic":"photorealistic video generation",
+            "t2v_director":"precise camera-directed video generation",
+            "rv2v_3dreal":"3D render → photorealistic video",
         }
         if not raw:
             raw = _defaults.get(task_type, "describe and enhance")
@@ -567,6 +693,7 @@ class Qwen35PromptEnhancer:
                     ref_content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b}"}})
             ref_content.append({"type": "text", "text": "\nAbove are REFERENCE images. Observe them independently from source frames."})
 
+            imgs = imgs_src + imgs_ref + imgs_rvid
             msgs = [
                 {"role": "system", "content": sp},
                 {"role": "user", "content": src_content},
