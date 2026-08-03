@@ -1,5 +1,7 @@
 # ComfyUI-Bernini-PromptEnhancer
 
+[English](README.md) | [安装教程](INSTALL.md) | [使用教程](TUTORIAL.zh-CN.md)
+
 ComfyUI 本地提示词增强节点包，基于 GGUF 多模态模型。包含 Bernini VLLM 语义规划、Qwen3.5 文本增强、以及 MiniMax H3 视频提示词规划（Gemma 4 E4B 驱动）——支持多素材上下文分析。零云 API。
 
 ## 核心特性

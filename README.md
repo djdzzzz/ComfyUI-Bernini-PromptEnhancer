@@ -1,6 +1,6 @@
 # ComfyUI-Bernini-PromptEnhancer
 
-[中文文档](README.zh-CN.md)
+[中文文档](README.zh-CN.md) | [Installation](INSTALL.md) | [Tutorial](TUTORIAL.zh-CN.md)
 
 ComfyUI custom nodes for local prompt enhancement via GGUF multimodal models. Includes Bernini VLLM semantic planning, Qwen3.5 text enhancement, and MiniMax H3 video prompt planning (powered by Gemma 4 E4B) with multi-material context analysis. Zero cloud API.
 
