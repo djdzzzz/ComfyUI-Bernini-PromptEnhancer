@@ -341,6 +341,15 @@ RULES:
 [PRESERVE]
 [FINAL_PROMPT]"""
 
+T2V_SPLIT = """Write a split-screen video prompt following this style exactly.
+
+EXAMPLE:
+Split-screen video showing the same continuous real-time event from two different camera angles. The screen is divided vertically into two equal halves. On the left side, show a static, elevated wide shot of an outdoor cafe terrace during light rain. The full scene is visible: several tables, wet pavement, a large striped umbrella, a waiter carrying a tray with three transparent glasses of differently colored drinks, and a cyclist approaching from the background. At the 2-second mark, the cyclist passes close to the waiter, causing the waiter to pivot sharply without falling. The tray tilts, one glass slides toward the edge, and the waiter catches it. On the right side, show the exact same event in perfect synchronization from a moving, waist-level camera. The camera tracks sideways with the waiter, briefly losing sight of the sliding glass as it passes behind his arm, then revealing it again as it is caught. Both sides must depict the identical event with matching timing, character appearance, object positions, trajectories, lighting, and physical consequences. No duplicated objects, disappearing items, or mismatched positions.
+
+YOUR TURN. Scene: {user_prompt}
+
+Structure: layout + scene description + left camera + right camera (exact same event) + timed action + consistency rules. Output ONLY the prompt."""
+
 V2V_STORYBOARD = """You are a multi-shot storyboard planner. Source video frames provided.
 
 User instruction: "{user_prompt}"
@@ -360,6 +369,24 @@ RULES:
 [PRESERVE]
 [FINAL_PROMPT]"""
 
+V2V_EDIT = """You are a video editing planner. Source video frames provided.
+User instruction: "{user_prompt}"
+
+The user wants to ADD, REMOVE, or CHANGE specific elements in the source video while keeping everything else EXACTLY as it appears.
+
+RULES:
+- [OBSERVATION]: Describe the source — subjects, objects, scene, lighting, camera, motion. List every element.
+- [UNDERSTAND]: Parse edit instruction — what to ADD, REMOVE, or CHANGE. Be precise about WHICH element and WHERE. Everything NOT mentioned stays exactly as-is.
+- [EXECUTE]: Plan edited video. For each change: location (left/right/foreground/background), action (appears/disappears/transforms). For kept elements: explicitly state they remain unchanged. Fill gaps from removed elements with consistent scene content.
+- [PRESERVE]: All unchanged elements — subjects, objects, scene, lighting, camera, motion. Source is ground truth for everything NOT in the edit instruction.
+- [FINAL_PROMPT]: Descriptive video paragraph (4-8 sentences). Describe source with edits applied. NOT as a list of edits — as a complete natural scene.
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
+
 
 def _route(tt, prompt, nr):
     n = max(nr, 1)
@@ -371,9 +398,11 @@ def _route(tt, prompt, nr):
         "t2v_anime":     (ds, T2V_ANIME.format(user_prompt=prompt), "none"),
         "t2v_realistic": (ds, T2V_REALISTIC.format(user_prompt=prompt), "none"),
         "t2v_director": (ds, T2V_DIRECTOR.format(user_prompt=prompt), "none"),
+        "t2v_split": (ds, T2V_SPLIT.format(user_prompt=prompt), "none"),
         "v2v":   (ds, V2V.format(user_prompt=prompt), "video"),
         "mv2v":  (ds, V2V.format(user_prompt=prompt), "video"),
         "v2v_storyboard": (ds, V2V_STORYBOARD.format(user_prompt=prompt), "video"),
+        "v2v_edit": (ds, V2V_EDIT.format(user_prompt=prompt), "video"),
         "i2i":   (ds, I2I.format(user_prompt=prompt), "ref"),
         "i2v":   (I2V_SP, I2V.format(user_prompt=prompt, image_num=n), "ref_or_first"),
         "ads2v": (ds, f'Video frames. Ad instruction: "{prompt}". Output ONE English ad placement sentence.', "video"),
@@ -387,7 +416,7 @@ def _route(tt, prompt, nr):
         "r2v_motion": (ds, R2V_MOTION.format(image_num=n, original_text=prompt), "video+ref"),
     }
     sp, ut, order = r.get(tt, (ds, f'Instruction: "{prompt}". Generate an enhanced prompt.', "none"))
-    if order != "none" and tt not in ("v2v", "mv2v", "r2v", "r2i", "rv2v", "vrc2v", "vi2v", "ads2v", "i2v", "fl2v", "r2v_motion", "rv2v_3dreal", "v2v_storyboard"):
+    if order != "none" and tt not in ("v2v", "mv2v", "r2v", "r2i", "rv2v", "vrc2v", "vi2v", "ads2v", "i2v", "fl2v", "r2v_motion", "rv2v_3dreal", "v2v_storyboard", "v2v_edit"):
         ut += PLAN_SUFFIX
     return sp, ut, order
 
@@ -600,7 +629,7 @@ class Qwen35PromptEnhancer:
                     "source_video", "reference_video",
                     "reference_image_0", "reference_image_1", "reference_image_2")
     TASKS = ["t2v","t2i","v2v","mv2v","i2i","i2v","ads2v","vi2v","r2v","r2i","rv2v","vrc2v","fl2v"]
-    _VALID_VARIANTS = {"r2v": ["motion"], "t2v": ["cinematic", "anime", "realistic", "director"], "rv2v": ["3dreal"], "v2v": ["storyboard"]}
+    _VALID_VARIANTS = {"r2v": ["motion"], "t2v": ["cinematic", "anime", "realistic", "director", "split"], "rv2v": ["3dreal"], "v2v": ["storyboard", "edit"]}
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -608,7 +637,7 @@ class Qwen35PromptEnhancer:
             "model": (_list_models(False) or ["<no .gguf>"],),
             "mmproj": (["<none>"] + _list_models(True),),
             "task_type": (["t2v","t2i","v2v","mv2v","i2i","i2v","ads2v","vi2v","r2v","r2i","rv2v","vrc2v","fl2v"], {"default": "v2v"}),
-            "variant": (["none", "motion (r2v)", "storyboard (v2v)", "cinematic (t2v)", "anime (t2v)", "realistic (t2v)", "director (t2v)", "3dreal (rv2v)"], {"default": "none"}),
+            "variant": (["none", "motion (r2v)", "storyboard (v2v)", "edit (v2v)", "cinematic (t2v)", "anime (t2v)", "realistic (t2v)", "director (t2v)", "split (t2v)", "3dreal (rv2v)"], {"default": "none"}),
             "prompt": ("STRING", {"multiline": True, "default": ""}),
             "temperature": ("FLOAT", {"default": 0.6, "min": 0.0, "max": 2.0, "step": 0.05}),
             "repeat_penalty": ("FLOAT", {"default": 1.15, "min": 1.0, "max": 2.0, "step": 0.01}),
@@ -635,6 +664,7 @@ class Qwen35PromptEnhancer:
         _defaults = {
             "v2v":"enhance the video","mv2v":"enhance the video",
             "v2v_storyboard":"multi-shot storyboard from source video",
+            "v2v_edit":"add/remove/change specific elements",
             "i2i":"enhance the image","i2v":"generate a video",
             "ads2v":"identify ad placement","vi2v":"edit with reference",
             "rv2v":"edit with reference","vrc2v":"edit with reference",
@@ -645,6 +675,7 @@ class Qwen35PromptEnhancer:
             "t2v_anime":"anime style video generation",
             "t2v_realistic":"photorealistic video generation",
             "t2v_director":"precise camera-directed video generation",
+            "t2v_split":"multi-camera split-screen video",
             "rv2v_3dreal":"3D render → photorealistic video",
         }
         if not raw:

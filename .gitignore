@@ -17,3 +17,6 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+# Compiled omni-server binaries (download from GitHub Releases or compile from llama.cpp-omni)
+bin/*.exe
+bin/*.dll

@@ -2,9 +2,9 @@
 
 [中文文档](README.zh-CN.md)
 
-A ComfyUI custom node package that pairs ByteDance Bernini's VLLM and semantic planning with image/video understanding and natural language reasoning for local prompt enhancement, powered by local GGUF inference — no cloud API required. Outputs high-quality enhanced prompts.
+ComfyUI custom nodes for local prompt enhancement via GGUF multimodal models. Includes Bernini VLLM semantic planning, Qwen3.5 text enhancement, and MiniMax H3 video prompt planning (powered by Gemma 4 E4B) with multi-material context analysis. Zero cloud API.
 
-Based on [Bernini: Latent Semantic Planning for Video Diffusion](https://arxiv.org/abs/2605.22344) and the [Bernini-Diffusers](https://huggingface.co/ByteDance/Bernini-Diffusers) model.
+Based on [Bernini: Latent Semantic Planning for Video Diffusion](https://arxiv.org/abs/2605.22344) (Bernini node) and the [MiniMax H3 prompt specification](https://www.minimax.io/blog/minimax-h3) (H3 node).
 
 ## Features
 
@@ -17,6 +17,7 @@ Based on [Bernini: Latent Semantic Planning for Video Diffusion](https://arxiv.o
 - **Image passthrough** — `source_video`, `reference_video`, `reference_image_0/1/2` pass through unchanged
 - **Dual template mode** — `structured` (five-section RULES) or `official` (single-pass), per the Bernini node
 - **Thinking-mode toggle** — Qwen3.5 node with `thinking_mode` switch (off by default)
+- **H3 video prompt planning** — multi-material context (video + image + audio), H3-standard three-section output, direct passthrough to official MiniMax H3 node
 
 ### Tasks
 
@@ -43,6 +44,8 @@ Based on [Bernini: Latent Semantic Planning for Video Diffusion](https://arxiv.o
 | r2v_motion | source_video + ref_images + prompt | ref=character, source=motion | Ref character performs source motion in described setting |
 
 All tasks accept an optional user `prompt`. When left empty, a default instruction is used.
+
+**H3 node tasks:** `t2v` / `i2v` / `h3_multi_ref` — see [H3 Prompt Planner](#h3-prompt-planner-gguf) section below for details.
 
 ### Smart frame sampling
 
@@ -78,6 +81,10 @@ Download GGUF quantized models into `ComfyUI/models/clip/`:
 ### Qwen3.5 node (optional)
 
 - [Yusiko/qwen3.5-prompter](https://huggingface.co/Yusiko/qwen3.5-prompter) — Qwen3.5-4B, prompt-engineering tuned, multimodal
+
+### H3 node
+
+- [Gemma 4 E4B GGUF](https://huggingface.co/unsloth/gemma-4-E4B-it-qat-GGUF) (4.2 GB); `mmproj-F32.gguf` in same repo — recommended for H3 video prompt planning
 
 ## Nodes
 
@@ -118,6 +125,54 @@ Same inputs and outputs as the Bernini node, plus:
 |-------|------|---------|-------|
 | thinking_mode | BOOLEAN | false | Qwen3.5 think mode |
 
+### H3 Prompt Planner (GGUF)
+
+![H3 Prompt Planner](assets/h3_node.png)
+
+Video prompt planner for MiniMax H3. Accepts video, image, and audio as context, produces H3-standard three-section English prompts with shot-by-shot structure and integrated soundscape. Powered by Gemma 4 E4B GGUF.
+
+**Tasks:** `t2v` / `i2v` / `h3_multi_ref`
+
+**Materials:** Drag & drop videos, images, audio. Reference as `ref_video_1`, `ref_image_1`, `ref_audio_1` in prompt.
+
+**FINAL_PROMPT format (H3 three-section standard):**
+```
+integrated_multimodal_description: Live-action cinematic...
+[Shot 1] ...camera pushes in with small amplitude at slow speed...
+At 00:03.500, the camera cuts to... (S1) says: <d>[English]...</d>...
+
+overall_soundscape: Steady rain on cobblestone, distant traffic hum...
+
+non_diegetic_music: N/A
+```
+
+**Passthrough:** `media_0`–`media_14` (JS renames to `ref_video_0`, `ref_image_0`, `ref_audio_0` in ComfyUI). Wire directly into official `MiniMax H3 Reference to Video` node inputs.
+
+| Input | Type | Default | Notes |
+|-------|------|---------|-------|
+| model | dropdown | — | GGUF file, auto-scanned |
+| mmproj | dropdown | `<none>` | Vision projector (required for image/video) |
+| task_type | dropdown | `h3_multi_ref` | t2v / i2v / h3_multi_ref |
+| prompt | STRING | "" | Multiline; use `ref_video_1` etc. |
+| temperature | FLOAT | 0.6 | 0.0–2.0 |
+| repeat_penalty | FLOAT | 1.15 | 1.0–2.0 |
+| seed | INT | 0 | 0 = random |
+| n_ctx | INT | 8192 | Context window |
+| n_gpu_layers | INT | -1 | -1 = all GPU |
+| max_tokens | INT | 2048 | Max output tokens |
+| frame_mode | dropdown | `uniform` | uniform / smart |
+| video_frames | INT | 5 | 1–64, frames per video |
+| sample_fps | INT | 0 | 0 = use video_frames |
+| sample_seconds | FLOAT | 5.0 | Max duration for sampling |
+| image_max_side | INT | 512 | 64–4096 |
+| thinking_mode | BOOLEAN | false | Qwen3.5 think mode |
+
+| Output | Type | Notes |
+|--------|------|-------|
+| enhanced_prompt | STRING | H3-standard three-section prompt (FINAL_PROMPT only) |
+| structured_plan | STRING | OBSERVATION–PRESERVE planning trace |
+| media_0–14 | IMAGE/AUDIO | Material passthrough (JS renames to ref_video_N etc.) |
+
 ## Models
 
 | Quant | Size | VRAM |
@@ -130,6 +185,8 @@ Same inputs and outputs as the Bernini node, plus:
 
 - [Bernini-Diffusers](https://huggingface.co/ByteDance/Bernini-Diffusers) — semantic planner
 - [Bernini MLLM GGUF](https://huggingface.co/mradermacher/Bernini-MLLM-Qwen2.5-VL-7B-GGUF) — GGUF quantization
+- [MiniMax H3](https://www.minimax.io/blog/minimax-h3) — omni-modal video generation model ([open weights](https://huggingface.co/MiniMaxAI/MiniMax-H3))
+- [Gemma 4 E4B GGUF](https://huggingface.co/unsloth/gemma-4-E4B-it-qat-GGUF) — H3 planner backbone
 - [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
 - [llama-cpp-python](https://github.com/abetlen/llama-cpp-python)
 

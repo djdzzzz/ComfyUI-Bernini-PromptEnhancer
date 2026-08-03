@@ -12,6 +12,13 @@ import numpy as np
 import torch
 from PIL import Image
 
+# Kill orphan llama-omni-server processes from crashed sessions
+try:
+    subprocess.run(['taskkill', '/F', '/IM', 'llama-omni-server.exe'],
+                   capture_output=True, timeout=5)
+except Exception:
+    pass
+
 _MODEL_ROOTS = []
 for key in ("clip", "text_encoders"):
     for dp in folder_paths.get_folder_paths(key):
@@ -180,9 +187,11 @@ def _route(tt, prompt, nr):
         "t2v_anime":     (T2V_ANIME.format(user_prompt=prompt), prompt, "none"),
         "t2v_realistic": (T2V_REALISTIC.format(user_prompt=prompt), prompt, "none"),
         "t2v_director": (T2V_DIRECTOR.format(user_prompt=prompt), prompt, "none"),
+        "t2v_split": (T2V_SPLIT.format(user_prompt=prompt), prompt, "none"),
         "v2v":   (ds, V2V.format(user_prompt=prompt), "video"),
         "mv2v":  (ds, V2V.format(user_prompt=prompt), "video"),
         "v2v_storyboard": (ds, V2V_STORYBOARD.format(user_prompt=prompt), "video"),
+        "v2v_edit": (ds, V2V_EDIT.format(user_prompt=prompt), "video"),
         "i2i":   (ds, I2I.format(user_prompt=prompt), "ref"),
         "i2v":   (I2V_SP, I2V.format(user_prompt=prompt, image_num=n), "ref_or_first"),
         "ads2v": (ds, ADS2V.format(user_prompt=prompt), "video"),
@@ -197,7 +206,7 @@ def _route(tt, prompt, nr):
     sp, ut, order = r.get(tt, (ds, prompt, "none"))
     # For visual tasks: append structured plan request with delimiter.
     # Skip tasks that already have [FINAL_PROMPT] built into their template.
-    if order != "none" and tt not in ("v2v", "mv2v", "r2v", "r2i", "rv2v", "vrc2v", "vi2v", "ads2v", "i2v", "r2v_motion", "rv2v_3dreal", "v2v_storyboard"):
+    if order != "none" and tt not in ("v2v", "mv2v", "r2v", "r2i", "rv2v", "vrc2v", "vi2v", "ads2v", "i2v", "r2v_motion", "rv2v_3dreal", "v2v_storyboard", "v2v_edit"):
         ut += PLAN_SUFFIX
     return sp, ut, order
 
@@ -232,7 +241,7 @@ class BerniniMLLMPromptEnhancer:
                     "reference_image_0", "reference_image_1", "reference_image_2")
     TASKS = ["t2v", "t2i", "v2v", "mv2v", "i2i", "i2v", "ads2v", "vi2v", "r2v", "r2i", "rv2v", "vrc2v", "fl2v"]
     # Valid task+variant combinations
-    _VALID_VARIANTS = {"r2v": ["motion"], "t2v": ["cinematic", "anime", "realistic", "director"], "rv2v": ["3dreal"], "v2v": ["storyboard"]}
+    _VALID_VARIANTS = {"r2v": ["motion"], "t2v": ["cinematic", "anime", "realistic", "director", "split"], "rv2v": ["3dreal"], "v2v": ["storyboard", "edit"]}
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -240,7 +249,7 @@ class BerniniMLLMPromptEnhancer:
             "model": (_list_models(False) or ["<no .gguf>"],),
             "mmproj": (["<none>"] + _list_models(True),),
             "task_type": (["t2v", "t2i", "v2v", "mv2v", "i2i", "i2v", "ads2v", "vi2v", "r2v", "r2i", "rv2v", "vrc2v", "fl2v"], {"default": "v2v"}),
-            "variant": (["none", "motion (r2v)", "storyboard (v2v)", "cinematic (t2v)", "anime (t2v)", "realistic (t2v)", "director (t2v)", "3dreal (rv2v)"], {"default": "none"}),
+            "variant": (["none", "motion (r2v)", "storyboard (v2v)", "edit (v2v)", "cinematic (t2v)", "anime (t2v)", "realistic (t2v)", "director (t2v)", "split (t2v)", "3dreal (rv2v)"], {"default": "none"}),
             "template_mode": (["official", "structured"], {"default": "structured"}),
             "prompt": ("STRING", {"multiline": True, "default": ""}),
             "temperature": ("FLOAT", {"default": 0.6, "min": 0.0, "max": 2.0, "step": 0.05}),
@@ -266,6 +275,7 @@ class BerniniMLLMPromptEnhancer:
         # Default instructions when user leaves prompt empty
         _defaults = {
             "v2v_storyboard": "multi-shot storyboard from source video",
+            "v2v_edit": "add/remove/change specific elements",
             "i2i": "enhance the image", "i2v": "generate a video",
             "ads2v": "identify ad placement", "vi2v": "edit with reference",
             "rv2v": "edit with reference", "vrc2v": "edit with reference",
@@ -276,6 +286,7 @@ class BerniniMLLMPromptEnhancer:
             "t2v_anime": "anime style video generation",
             "t2v_realistic": "photorealistic video generation",
             "t2v_director": "precise camera-directed video generation",
+            "t2v_split": "multi-camera split-screen video",
             "rv2v_3dreal": "3D render → photorealistic video",
         }
         if not raw:
@@ -479,6 +490,22 @@ RULES:
 [PRESERVE]
 [FINAL_PROMPT]"""
 
+T2V_SPLIT = """Write a split-screen video prompt following this style exactly. Study the example, then write a new prompt for the user's scene.
+
+EXAMPLE:
+Split-screen video showing the same continuous real-time event from two different camera angles. The screen is divided vertically into two equal halves. On the left side, show a static, elevated wide shot of an outdoor café terrace during light rain. The full scene is visible: several tables, wet pavement, a large striped umbrella, a waiter carrying a tray with three transparent glasses of differently colored drinks, and a cyclist approaching from the background. Reflections of the people, tables, and umbrella are visible on the wet ground. At the 2-second mark, the cyclist passes close to the waiter, causing the waiter to pivot sharply without falling. The tray tilts, one glass slides toward the edge, and the waiter catches it. On the right side, show the exact same event in perfect synchronization from a moving, waist-level camera. The camera tracks sideways with the waiter, briefly losing sight of the sliding glass as it passes behind the waiter's arm, then revealing it again as it is caught. Both sides must depict the identical event with matching timing, character appearance, object positions, trajectories, lighting, reflections, weather, and physical consequences. No duplicated objects, disappearing items, changed drink colors, inconsistent hand movements, or mismatched cyclist positions.
+
+YOUR TURN. Write for this scene: {user_prompt}
+
+Follow the same structure:
+- First paragraph: layout + rich scene description with details
+- Left/first camera paragraph: position, what it shows
+- Right/second camera paragraph: exact same event from different angle
+- Timed action: describe what happens and what each camera shows
+- Consistency rules: matching timing, positions, no duplicates, no contradictions
+
+Write naturally, cinematically. Output ONLY the prompt."""
+
 V2V = """Source video frames provided.
 
 User instruction: "{user_prompt}"
@@ -521,6 +548,24 @@ RULES:
 - [EXECUTE]: Plan SHOT 1 (wide/establishing), SHOT 2 (medium/tracking), SHOT 3 (close-up/detail). For each shot specify: framing, lens, camera movement, what the viewer sees. Shots must differ in perspective — not just the same shot with different words.
 - [PRESERVE]: Source action timing, subjects, setting, and lighting across all three shots.
 - [FINAL_PROMPT]: Output THREE paragraphs labeled [SHOT 1], [SHOT 2], [SHOT 3]. Each 3-5 sentences. Each is a standalone video generation prompt — self-contained with subject, action, setting, camera, and lighting. Different camera perspective for each shot.
+
+[OBSERVATION]
+[UNDERSTAND]
+[EXECUTE]
+[PRESERVE]
+[FINAL_PROMPT]"""
+
+V2V_EDIT = """You are a video editing planner. Source video frames provided.
+User instruction: "{user_prompt}"
+
+The user wants to ADD, REMOVE, or CHANGE specific elements in the source video while keeping everything else EXACTLY as it appears. Identify WHAT changes and WHAT stays.
+
+RULES:
+- [OBSERVATION]: Describe the source — subjects, objects, scene, lighting, camera, motion. List every element you see.
+- [UNDERSTAND]: Parse the user instruction — what specific elements to ADD (new), REMOVE (delete), or CHANGE (modify). Be precise about WHICH element and WHERE it is. Everything NOT mentioned stays exactly as-is.
+- [EXECUTE]: Plan the edited video. For each change: where is the element (left/right/foreground/background), what happens to it (appears/disappears/transforms). For elements to KEEP: explicitly state they remain unchanged — same appearance, position, motion, lighting. Fill any gaps left by removed elements with consistent scene content.
+- [PRESERVE]: All unchanged elements — subjects, objects, scene, lighting, camera, motion. The source video is the ground truth for everything NOT listed in the edit instruction.
+- [FINAL_PROMPT]: Descriptive video paragraph (4-8 sentences). Describe the source video with the specific edits applied. Mention what elements were added/removed/changed, then describe the full result naturally as a complete scene — NOT as a list of edits.
 
 [OBSERVATION]
 [UNDERSTAND]
@@ -906,4 +951,20 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "BerniniMLLMPromptEnhancer": "Bernini MLLM Prompt Enhancer (GGUF)",
     "Qwen35PromptEnhancer": "Qwen3.5 Prompt Enhancer (GGUF)",
 }
+
+# Register H3 prompt planner node (MiniMax H3 omni-modal)
+try:
+    from .h3_node import H3PromptEnhancer
+    NODE_CLASS_MAPPINGS["H3PromptEnhancer"] = H3PromptEnhancer
+    NODE_DISPLAY_NAME_MAPPINGS["H3PromptEnhancer"] = "H3 Prompt Planner (GGUF)"
+except Exception as _e:
+    print(f"[Bernini] failed to register H3PromptEnhancer: {_e}", flush=True)
+
+# Register MiniCPM-o 4.5 omni planner node
+try:
+    from .h3_minicpm import H3OmniPromptEnhancer
+    NODE_CLASS_MAPPINGS["H3OmniPromptEnhancer"] = H3OmniPromptEnhancer
+    NODE_DISPLAY_NAME_MAPPINGS["H3OmniPromptEnhancer"] = "H3 Omni Prompt Planner (MiniCPM-o)"
+except Exception as _e:
+    print(f"[BerniniPE] H3 node import failed: {_e}", flush=True)
 WEB_DIRECTORY = "./js"
