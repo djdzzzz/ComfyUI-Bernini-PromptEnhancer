@@ -354,14 +354,14 @@ def _route(tt, prompt, n_src=0, n_img=0, n_vid=0, audio_files=None, vid_nums=Non
     # ---- neutral material list with H3-style role hints ------------------------
     items = []
     if n_src:
-        items.append(f"ref_video_{vnums[0]}（{n_src} 帧，共 {n_src} 帧）")
+        items.append(f"<Video {vnums[0]}>（{n_src} 帧，共 {n_src} 帧）")
     if n_vid:
         rv = vnums[1:] if n_src else vnums
-        items.append(f"ref_video_{'、ref_video_'.join(str(n) for n in rv)}（共 {n_vid} 帧）")
+        items.append(f"<Video {'>、<Video '.join(str(n) for n in rv)}>（共 {n_vid} 帧）")
     if n_img:
-        items.append(f"ref_image_{'、ref_image_'.join(str(n) for n in inums)}")
+        items.append(f"<Picture {'>、<Picture '.join(str(n) for n in inums)}>")
     if audio_files:
-        items.append(f"ref_audio_{'、ref_audio_'.join(str(n) for n in anums)}（可直接听到；若含语音尝试 ASR 转录）")
+        items.append(f"<Audio {'>、<Audio '.join(str(n) for n in anums)}>（可直接听到；若含语音尝试 ASR 转录）")
     material_text = ("已上传素材：" + "；".join(items) + "\n"
                      "H3 支持角色/场景/动作/镜头/音色多维度参考——"
                      "用户可指定哪个素材用作人物外观、场景氛围、动作节奏、镜头运镜或音色台词。\n") if items else ""
@@ -404,8 +404,8 @@ def _route(tt, prompt, n_src=0, n_img=0, n_vid=0, audio_files=None, vid_nums=Non
         ut = (f"用户需求：{prompt}\n\n"
               f"{material_text}"
               f"{intent_text}"
-              f"（用户在需求里可能用 ref_video_N/ref_image_N/ref_audio_N 引用素材——编号与上面一致；"
-              f"也可自由指定素材用途，例如『ref_image_1 的角色外观，ref_video_1 的场景运镜，ref_audio_1 的台词情感』。）\n\n"
+              f"（用户在需求里可能用 &lt;Video N&gt;/&lt;Picture N&gt;/&lt;Audio N&gt; 引用素材——编号与上面一致；"
+              f"也可自由指定素材用途，例如『<Picture 1> 的角色外观，<Video 1> 的场景运镜，<Audio 1> 的台词情感』。）\n\n"
               f"按 H3 官方规范输出，分段如下：\n"
               f"[OBSERVATION] 逐一观察每个素材的真实画面和声音，只写观察到的不要臆造"
               f"——把人物外观、衣着样式颜色、场景色调材质、动作节奏、音频的台词音色原样记录{asr_hint}\n"
@@ -416,7 +416,7 @@ def _route(tt, prompt, n_src=0, n_img=0, n_vid=0, audio_files=None, vid_nums=Non
               f"  每镜头写明主体、构图、动作、光线、同步音效\n"
               f"  运镜：camera pushes in with small amplitude at slow speed 等自然入句\n"
               f"  对白：(Sx) says: <d>[Language] 台词 </d>；画外音补 lips remain closed\n"
-              f"  素材融入：ref_image_N 的外观特征、ref_video_N 的运镜节奏、ref_audio_N 的台词音色\n"
+              f"  素材融入：<Picture N> 的外观特征、<Video N> 的运镜节奏、<Audio N> 的台词音色\n"
               f"[PRESERVE] 必须保留的元素（要点列举）\n"
               f"[FINAL_PROMPT] 提炼为 H3 标准三段式最终提示词（全部英文）：\n"
               f"  integrated_multimodal_description: （EXECUTE 浓缩版，[Shot N]+At 00:00.000 分镜，300-500 words）\n"
@@ -449,6 +449,40 @@ def _refresh_models():
     _H3_MMPROJS[:] = ['<none>'] + mm
 _refresh_models()  # initial scan on import
 
+# Smart defaults: prefer E4B, fallback to first found
+_H3_DEFAULT_MODEL = ''
+_H3_DEFAULT_MMPROJ = '<none>'
+for m in _H3_MODELS:
+    if m == '<no .gguf>': continue
+    ml = m.lower()
+    if 'e4b' in ml:
+        _H3_DEFAULT_MODEL = m
+        for p in _H3_MMPROJS:
+            if p != '<none>' and os.path.dirname(p) == os.path.dirname(m):
+                _H3_DEFAULT_MMPROJ = p
+                break
+        break
+if not _H3_DEFAULT_MODEL:
+    for m in _H3_MODELS:
+        if m == '<no .gguf>': continue
+        ml = m.lower()
+        if 'gemma' in ml:
+            _H3_DEFAULT_MODEL = m
+            for p in _H3_MMPROJS:
+                if p != '<none>' and os.path.dirname(p) == os.path.dirname(m):
+                    _H3_DEFAULT_MMPROJ = p
+                    break
+            break
+if not _H3_DEFAULT_MODEL:
+    for m in _H3_MODELS:
+        if m != '<no .gguf>':
+            _H3_DEFAULT_MODEL = m
+            for p in _H3_MMPROJS:
+                if p != '<none>' and os.path.dirname(p) == os.path.dirname(m):
+                    _H3_DEFAULT_MMPROJ = p
+                    break
+            break
+
 
 class H3PromptEnhancer(io.ComfyNode):
     TASKS = ['t2v', 'i2v', 'h3_multi_ref']
@@ -461,8 +495,8 @@ class H3PromptEnhancer(io.ComfyNode):
             category='Bernini',
             description='Multi-modal prompt planner for MiniMax H3. Upload materials in the node panel.',
             inputs=[
-                io.Combo.Input('model', options=_H3_MODELS, default=''),
-                io.Combo.Input('mmproj', options=_H3_MMPROJS, default='<none>'),
+                io.Combo.Input('model', options=_H3_MODELS, default=_H3_DEFAULT_MODEL),
+                io.Combo.Input('mmproj', options=_H3_MMPROJS, default=_H3_DEFAULT_MMPROJ),
                 io.Combo.Input('task_type', options=cls.TASKS, default='h3_multi_ref'),
                 io.String.Input('prompt', default='', multiline=True),
                 io.String.Input('media_manifest', default=''),
@@ -576,7 +610,7 @@ class H3PromptEnhancer(io.ComfyNode):
         sp, ut, order = _route(task_type, prompt, n_src=len(src), n_img=len(ref), n_vid=len(rvid),
                                audio_files=audio_files, vid_nums=vid_nums, img_nums=img_nums, aud_nums=aud_nums)
         if audio_files:
-            parts = '; '.join(f'ref_audio_{aud_nums[i]}:{os.path.basename(ap)}' for i, ap in enumerate(audio_files))
+            parts = '; '.join(f'<Audio {aud_nums[i]}>:{os.path.basename(ap)}' for i, ap in enumerate(audio_files))
             ut = f'{ut}\n\n音频素材：{parts}。按编号引用。'
         src_num = vid_nums[0] if vid_nums else 1
         rv_nums = vid_nums[1:] if (src_vf is not None) else vid_nums
@@ -617,13 +651,13 @@ class H3PromptEnhancer(io.ComfyNode):
             if order == 'video+ref':
                 sc, rc = [], []
                 for i, b in enumerate(imgs_src):
-                    sc += [{'type':'text','text':f'[ref_video_{src_num} 第{i+1}帧]:\n'},{'type':'image_url','image_url':{'url':f'data:image/png;base64,{b}'}}]
-                sc.append({'type':'text','text':f'\n以上是源视频（ref_video_{src_num}）的抽帧。'})
+                    sc += [{'type':'text','text':f'[<Video {src_num}> 第{i+1}帧]:\n'},{'type':'image_url','image_url':{'url':f'data:image/png;base64,{b}'}}]
+                sc.append({'type':'text','text':f'\n以上是源视频（<Video {src_num}>）的抽帧。'})
                 for i, b in enumerate(imgs_ref):
-                    rc += [{'type':'text','text':f'[ref_image_{img_nums[i]}]:\n'},{'type':'image_url','image_url':{'url':f'data:image/png;base64,{b}'}}]
+                    rc += [{'type':'text','text':f'[<Picture {img_nums[i]}>]:\n'},{'type':'image_url','image_url':{'url':f'data:image/png;base64,{b}'}}]
                 for i, b in enumerate(imgs_rvid):
                     vn = rv_nums[min(i, max(0, len(rv_nums)-1))] if rv_nums else (src_num + 1)
-                    rc += [{'type':'text','text':f'[ref_video_{vn} 第{i+1}帧]:\n'},{'type':'image_url','image_url':{'url':f'data:image/png;base64,{b}'}}]
+                    rc += [{'type':'text','text':f'[<Video {vn}> 第{i+1}帧]:\n'},{'type':'image_url','image_url':{'url':f'data:image/png;base64,{b}'}}]
                 rc.append({'type':'text','text':'\n以上是参考素材。'})
                 return ([{'role':'system','content':sp},{'role':'user','content':sc},{'role':'user','content':rc},{'role':'user','content':ut}],
                         len(imgs_src) + len(imgs_ref) + len(imgs_rvid))
@@ -631,19 +665,19 @@ class H3PromptEnhancer(io.ComfyNode):
             labels = None
             if order == 'ref':
                 imgs = imgs_ref + imgs_rvid
-                labels = [f'ref_image_{img_nums[i]}' for i in range(len(imgs_ref))] + \
-                         [f'ref_video_{rv_nums[min(i, max(0, len(rv_nums)-1))] if rv_nums else 1} 第{i+1}帧' for i in range(len(imgs_rvid))]
+                labels = [f'<Picture {img_nums[i]}>' for i in range(len(imgs_ref))] + \
+                         [f'<Video {rv_nums[min(i, max(0, len(rv_nums)-1))] if rv_nums else 1}> 第{i+1}帧' for i in range(len(imgs_rvid))]
             elif order == 'video':
                 imgs = imgs_src + imgs_rvid
-                labels = [f'ref_video_{src_num} 第{i+1}帧' for i in range(len(imgs_src))] + \
-                         [f'ref_video_{rv_nums[min(i, max(0, len(rv_nums)-1))] if rv_nums else src_num+1} 第{i+1}帧' for i in range(len(imgs_rvid))]
+                labels = [f'<Video {src_num}> 第{i+1}帧' for i in range(len(imgs_src))] + \
+                         [f'<Video {rv_nums[min(i, max(0, len(rv_nums)-1))] if rv_nums else src_num+1}> 第{i+1}帧' for i in range(len(imgs_rvid))]
             else:
                 imgs = {'none':[],'ref_or_first':(imgs_ref or imgs_src[:1])+imgs_rvid}[order]
                 if order == 'ref_or_first':
                     if imgs_ref:
-                        labels = [f'ref_image_{img_nums[i]}' for i in range(min(len(imgs_ref), len(imgs)))]
+                        labels = [f'<Picture {img_nums[i]}>' for i in range(min(len(imgs_ref), len(imgs)))]
                     elif imgs_src:
-                        labels = [f'ref_video_{src_num} 第1帧']
+                        labels = [f'<Video {src_num}> 第1帧']
             return (_build_msgs(sp, ut, imgs, labels), len(imgs))
 
         def _attach_audio(msgs):
@@ -653,7 +687,7 @@ class H3PromptEnhancer(io.ComfyNode):
                 last['content'] = [{'type': 'text', 'text': last['content']}]
             for i, b64 in enumerate(audio_b64):
                 if b64:
-                    last['content'].append({'type': 'text', 'text': f'\n[ref_audio_{aud_nums[i]}] 参考音频:'})
+                    last['content'].append({'type': 'text', 'text': f'\n[<Audio {aud_nums[i]}>] 参考音频:'})
                     last['content'].append({'type': 'input_audio', 'input_audio': {'data': b64, 'format': 'wav'}})
             return msgs
 

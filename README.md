@@ -133,7 +133,7 @@ Video prompt planner for MiniMax H3. Accepts video, image, and audio as context,
 
 **Tasks:** `t2v` / `i2v` / `h3_multi_ref`
 
-**Materials:** Drag & drop videos, images, audio. Reference as `ref_video_1`, `ref_image_1`, `ref_audio_1` in prompt.
+**Materials:** Drag & drop videos, images, audio. Reference as `<Video 1>`, `<Picture 1>`, `<Audio 1>` in prompt.
 
 **FINAL_PROMPT format (H3 three-section standard):**
 ```
@@ -153,7 +153,7 @@ non_diegetic_music: N/A
 | model | dropdown | — | GGUF file, auto-scanned |
 | mmproj | dropdown | `<none>` | Vision projector (required for image/video) |
 | task_type | dropdown | `h3_multi_ref` | t2v / i2v / h3_multi_ref |
-| prompt | STRING | "" | Multiline; use `ref_video_1` etc. |
+| prompt | STRING | "" | Multiline; use `<Video 1>` etc. |
 | temperature | FLOAT | 0.6 | 0.0–2.0 |
 | repeat_penalty | FLOAT | 1.15 | 1.0–2.0 |
 | seed | INT | 0 | 0 = random |

@@ -133,7 +133,7 @@ pip install -r requirements.txt
 
 **任务：** `t2v` / `i2v` / `h3_multi_ref`
 
-**素材：** 拖拽上传，用 `ref_video_1`、`ref_image_1`、`ref_audio_1` 引用。编号与官方 `MiniMax H3 Reference to Video` 节点一致。
+**素材：** 拖拽上传，用 `<Video 1>`、`<Picture 1>`、`<Audio 1>` 引用。与 H3 官方指南一致。
 
 **FINAL_PROMPT 格式（H3 标准三段式）：**
 ```
@@ -153,7 +153,7 @@ non_diegetic_music: N/A
 | model | 下拉 | — | GGUF 文件，自动扫描 |
 | mmproj | 下拉 | `<none>` | 视觉投影器（有图片/视频时必选） |
 | task_type | 下拉 | `h3_multi_ref` | t2v / i2v / h3_multi_ref |
-| prompt | STRING | "" | 多行；用 `ref_video_1` 等引用 |
+| prompt | STRING | "" | 多行；用 `<Video 1>` 等引用 |
 | temperature | FLOAT | 0.6 | 0.0–2.0 |
 | repeat_penalty | FLOAT | 1.15 | 1.0–2.0 |
 | seed | INT | 0 | 0 = 随机 |

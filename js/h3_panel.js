@@ -284,7 +284,7 @@ function buildPanel(node) {
         <div class="h3p-top">
             <div class="h3p-media" title="点击或拖拽上传：视频 ≤3 / 图片 ≤9 / 音频 ≤3（混合总上限 12 个）"></div>
             <textarea class="h3p-prompt" spellcheck="false"
-                placeholder="描述你想要的视频：画面内容、运镜、氛围…… 可上传视频/图片/音频作参考，在文中用 ref_video_1、ref_image_1、ref_audio_1 引用它们"></textarea>
+                placeholder="描述你想要的视频：画面内容、运镜、氛围…… 可上传视频/图片/音频作参考，在文中用 <Video 1>、<Picture 1>、<Audio 1> 引用它们"></textarea>
         </div>
         <div class="h3p-bar">
             <select class="h3p-sel h3p-task"></select>
@@ -547,16 +547,16 @@ function refreshPanel(node) {
         bx.appendChild(c);
     };
 
-    if (m.source_video) mkChip(m.source_video, "vid", `ref_video_${m.vid_nums[0] ?? 1}·源`, () => {
+    if (m.source_video) mkChip(m.source_video, "vid", `<Video ${m.vid_nums[0] ?? 1}>·源`, () => {
         const mm = getMedia(node); mm.source_video = null; mm.vid_nums.shift(); setMedia(node, mm); refreshPanel(node);
     });
-    m.reference_videos.forEach((e, i) => mkChip(e, "vid", `ref_video_${m.vid_nums[i + 1] ?? i + 1}`, () => {
+    m.reference_videos.forEach((e, i) => mkChip(e, "vid", `<Video ${m.vid_nums[i + 1] ?? i + 1}>`, () => {
         const mm = getMedia(node); mm.reference_videos.splice(i, 1); mm.vid_nums.splice(i + 1, 1); setMedia(node, mm); refreshPanel(node);
     }));
-    m.images.forEach((e, i) => mkChip(e, "img", `ref_image_${m.img_nums[i] ?? i + 1}`, () => {
+    m.images.forEach((e, i) => mkChip(e, "img", `<Picture ${m.img_nums[i] ?? i + 1}>`, () => {
         const mm = getMedia(node); mm.images.splice(i, 1); mm.img_nums.splice(i, 1); setMedia(node, mm); refreshPanel(node);
     }));
-    m.audios.forEach((e, i) => mkChip(e, "aud", `ref_audio_${m.aud_nums[i] ?? i + 1}`, () => {
+    m.audios.forEach((e, i) => mkChip(e, "aud", `<Audio ${m.aud_nums[i] ?? i + 1}>`, () => {
         const mm = getMedia(node); mm.audios.splice(i, 1); mm.aud_nums.splice(i, 1); setMedia(node, mm); refreshPanel(node);
     }, {
         trim: e.trim ? { start: e.trim.start, end: e.trim.end } : null,
@@ -572,10 +572,10 @@ function mediaItems(node) {
     const m = getMedia(node);
     const items = [];
     const sub = (e) => e?.subfolder ? `&subfolder=${encodeURIComponent(e.subfolder)}` : "";
-    if (m.source_video) items.push({ label: `ref_video_${m.vid_nums[0] ?? 1}`, kind: "vid", entry: m.source_video });
-    m.reference_videos.forEach((e, i) => items.push({ label: `ref_video_${m.vid_nums[i + 1] ?? i + 1}`, kind: "vid", entry: e }));
-    m.images.forEach((e, i) => items.push({ label: `ref_image_${m.img_nums[i] ?? i + 1}`, kind: "img", entry: e }));
-    m.audios.forEach((e, i) => items.push({ label: `ref_audio_${m.aud_nums[i] ?? i + 1}`, kind: "aud", entry: e }));
+    if (m.source_video) items.push({ label: `<Video ${m.vid_nums[0] ?? 1}>`, kind: "vid", entry: m.source_video });
+    m.reference_videos.forEach((e, i) => items.push({ label: `<Video ${m.vid_nums[i + 1] ?? i + 1}>`, kind: "vid", entry: e }));
+    m.images.forEach((e, i) => items.push({ label: `<Picture ${m.img_nums[i] ?? i + 1}>`, kind: "img", entry: e }));
+    m.audios.forEach((e, i) => items.push({ label: `<Audio ${m.aud_nums[i] ?? i + 1}>`, kind: "aud", entry: e }));
     return items;
 }
 
@@ -771,12 +771,12 @@ function renderCount(node) {    const ui = node._h3ui;
     const scan = (re, nums, label) => {
         for (const mt of prompt.matchAll(re)) {
             const n = parseInt(mt[1], 10);
-            if (!nums.includes(n) && !dangling.includes(`${label}${n}`)) dangling.push(`${label}${n}`);
+            if (!nums.includes(n) && !dangling.includes(`<${label} ${n}>`)) dangling.push(`<${label} ${n}>`);
         }
     };
-    scan(/ref_image_(\d+)/g, m.img_nums, "ref_image_");
-    scan(/ref_video_(\d+)/g, m.vid_nums, "ref_video_");
-    scan(/ref_audio_(\d+)/g, m.aud_nums, "ref_audio_");
+    scan(/<Picture (\d+)>/g, m.img_nums, "Picture");
+    scan(/<Video (\d+)>/g, m.vid_nums, "Video");
+    scan(/<Audio (\d+)>/g, m.aud_nums, "Audio");
     if (dangling.length) {
         cnt.textContent = `⚠ 未上传：${dangling.join(" ")}`;
         cnt.style.color = "#ff7a7a";

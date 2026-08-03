@@ -60,13 +60,13 @@ non_diegetic_music: N/A
 
 1. `task_type` 选 `i2v`
 2. 拖入 1-2 张图片到节点面板
-3. `prompt` 中用 `ref_image_1`、`ref_image_2` 引用：
+3. `prompt` 中用 `<Picture 1>`、`<Picture 2>` 引用：
    ```
-   ref_image_1 作为起始帧，生成一段视频：女孩缓缓睁开眼睛，站起身走向窗边
+   <Picture 1> 作为起始帧，生成一段视频：女孩缓缓睁开眼睛，站起身走向窗边
    ```
 4. Queue
 
-模型会观察 ref_image_1 的人物外观、场景色调、光线氛围，生成从该图出发的动作描述。
+模型会观察 `<Picture 1>` 的人物外观、场景色调、光线氛围，生成从该图出发的动作描述。
 
 ---
 
@@ -85,19 +85,19 @@ non_diegetic_music: N/A
 
 3. 在 `prompt` 中说明各素材的用途：
    ```
-   ref_image_1 作为人物外观参考（古风服饰），
-   ref_video_1 的动作和运镜节奏参考，
-   ref_audio_1 的台词和情感氛围参考。
+   <Picture 1> 作为人物外观参考（古风服饰），
+   <Video 1> 的动作和运镜节奏参考，
+   <Audio 1> 的台词和情感氛围参考。
    生成一段仙侠风格的视频提示词。
    ```
 
 4. Queue
 
 **素材编号规则**：
-- 源视频 → `ref_video_1`（抽帧后作为画面参考）
-- 参考图 → `ref_image_1`、`ref_image_2`...
-- 参考视频 → `ref_video_2`、`ref_video_3`（排在源视频之后）
-- 音频 → `ref_audio_1`、`ref_audio_2`...
+- 源视频 → `<Video 1>`（抽帧后作为画面参考）
+- 参考图 → `<Picture 1>`、`<Picture 2>`...
+- 参考视频 → `<Video 2>`、`<Video 3>`（排在源视频之后）
+- 音频 → `<Audio 1>`、`<Audio 2>`...
 
 ---
 
@@ -108,7 +108,7 @@ H3 Prompt Planner 前端面板：
 | 操作 | 方式 |
 |------|------|
 | 上传素材 | 点击 📎 按钮选择文件，或拖拽到按钮上 |
-| 引用素材 | prompt 里输入 ref_ 前缀触发菜单，或点底部按钮 |
+| 引用素材 | prompt 里输入 `<` 触发菜单，或点底部按钮 |
 | 音频裁剪 | 点音频 chip 上的 ✂ 按钮，设为 2-15 秒片段 |
 | 视频预览 | 点视频 chip 上的 ▶ 播放 |
 | 图片预览 | 点图片 chip 放大查看 |
@@ -125,7 +125,7 @@ H3 Prompt Planner 前端面板：
 |------|------|------|
 | `model` | — | GGUF 模型，启动时自动扫描 `models/clip/` 子目录 |
 | `task_type` | `h3_multi_ref` | t2v / i2v / h3_multi_ref |
-| `prompt` | — | 用户指令，用 `ref_video_1`、`ref_image_1`、`ref_audio_1` 引用素材 |
+| `prompt` | — | 用户指令，用 `<Video 1>`、`<Picture 1>`、`<Audio 1>` 引用素材 |
 | `mmproj` | `<none>` | 视觉投影器。有图片/视频输入时必选 |
 
 ### 推理参数
@@ -164,15 +164,15 @@ H3 Prompt Planner 前端面板：
 
 ```
 任务：h3_multi_ref
-素材：ref_image_1（新角色外观图）+ ref_video_1（原角色动作视频）
-prompt：ref_image_1 的角色外观替换 ref_video_1 中的人物，保持 ref_video_1 的动作和场景不变
+素材：<Picture 1>（新角色外观图）+ <Video 1>（原角色动作视频）
+prompt：<Picture 1> 的角色外观替换 <Video 1> 中的人物，保持 <Video 1> 的动作和场景不变
 ```
 
 ### 工作流 2：场景+氛围融合
 
 ```
 任务：h3_multi_ref
-素材：ref_image_1（场景参考图）+ ref_video_1（动作参考）+ ref_audio_1（氛围音乐）
+素材：<Picture 1>（场景参考图）+ <Video 1>（动作参考）+ <Audio 1>（氛围音乐）
 prompt：融合所有素材，生成一段电影感视频提示词
 ```
 
