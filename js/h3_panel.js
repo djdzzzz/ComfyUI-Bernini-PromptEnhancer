@@ -14,7 +14,8 @@ const TASK_LABELS = {
 };
 
 const PANEL_WIDGETS = [
-    "model", "mmproj", "task_type", "prompt", "media_manifest",
+    "model", "mmproj", "task_type", "prompt", "media_manifest", "system_prompt",
+    "user_template",
     "temperature", "repeat_penalty", "seed", "n_ctx", "n_gpu_layers",
     "max_tokens", "frame_mode", "video_frames", "sample_fps", "sample_seconds",
     "image_max_side", "thinking_mode",
@@ -26,9 +27,9 @@ const H3_CSS = `
 .h3p { display:flex; flex-direction:column; gap:8px; width:100%; height:100%;
        box-sizing:border-box; background:#191919; border:1px solid #2b2b2b;
        border-radius:10px; padding:10px; font-family:inherit;
-       color:#d5d5d5; font-size:12px; overflow:hidden; }
-.h3p * { box-sizing:border-box; }
-.h3p-top { display:flex; gap:10px; flex:1 1 auto; min-height:110px; }
+       color:#d5d5d5; font-size:12px; overflow:auto; min-width:0; }
+.h3p * { box-sizing:border-box; min-width:0; }
+.h3p-top { display:flex; gap:10px; flex:1 1 auto; min-height:110px; width:100%; min-width:0; }
 .h3p-media { width:112px; flex:0 0 112px; border:1px dashed #3a3a3a; border-radius:8px;
              background:#202020; overflow-y:auto; overflow-x:hidden;
              padding:4px; scrollbar-width:thin; scrollbar-color:#3a3a3a transparent; }
@@ -52,7 +53,8 @@ const H3_CSS = `
 .h3p-chip .h3p-ctag { position:absolute; left:2px; bottom:1px; font-size:9px; color:#9ed94a;
                       background:rgba(0,0,0,.6); padding:0 3px; border-radius:3px; }
 .h3p-prompt { flex:1 1 auto; resize:none; background:transparent; border:none; outline:none;
-              color:#e8e8e8; font-size:13px; line-height:1.5; font-family:inherit; }
+              color:#e8e8e8; font-size:13px; line-height:1.5; font-family:inherit;
+              min-width:0; min-height:60px; }
 .h3p-prompt::placeholder { color:#5f5f5f; }
 .h3p-bar { display:flex; align-items:center; gap:6px; flex:0 0 auto; flex-wrap:wrap; }
 .h3p-sel { background:#242424; color:#cfcfcf; border:1px solid #303030; border-radius:999px;
@@ -64,7 +66,7 @@ const H3_CSS = `
 .h3p-btn.h3p-on { background:#33401f; border-color:#5b7a24; color:#c9e784; }
 .h3p-count { margin-left:auto; color:#7d7d7d; font-size:11px; user-select:none; }
 .h3p-adv { display:none; flex:0 0 auto; background:#1f1f1f; border:1px solid #2b2b2b;
-           border-radius:8px; padding:8px; overflow-y:auto; max-height:300px;
+           border-radius:8px; padding:8px; overflow-y:auto; max-height:300px; min-width:0;
            scrollbar-width:thin; scrollbar-color:#3a3a3a transparent; }
 .h3p-adv.h3p-open { display:grid; grid-template-columns:1fr 1fr; gap:6px 14px; }
 .h3p-row { display:flex; align-items:center; gap:6px; min-width:0; }
@@ -242,29 +244,30 @@ function mediaSlots(m) {
 
 function syncOutputs(node) {
     const slots = mediaSlots(getMedia(node));
-    const old = node.outputs || [];
-    const saved = [];
-    for (let i = 2; i < old.length; i++) {
-        const o = old[i];
-        if (o?.links?.length) saved.push({ slotIdx: i - 2, type: o.type, links: o.links.slice() });
-    }
-    for (let i = old.length - 1; i >= 2; i--) node.disconnectOutput(i);
-    node.outputs = old.slice(0, 2);
-    slots.forEach((s, i) => {
+    const target = slots.length;
+    // NOTE: addOutput/removeOutput mutate node.outputs in place — never keep a
+    // separate array copy, it would double-push / double-splice and corrupt slots.
+    // 1) ensure media ports exist up to target (append only, indexes stay stable)
+    while (node.outputs.length - 2 < target) {
+        const s = slots[node.outputs.length - 2];
+        if (!s) break;
         node.addOutput(s.label, s.type);
         const o = node.outputs[node.outputs.length - 1];
         if (s.type === "VIDEO") o.color_on = o.color_off = "#66a3ff";
         else if (s.type === "AUDIO") o.color_on = o.color_off = "#ffa04d";
-    });
-    for (const sv of saved) {
-        const s = slots[sv.slotIdx];
-        if (!s || s.type !== sv.type) continue;
-        const out = node.outputs[2 + sv.slotIdx];
-        out.links = sv.links;
-        for (const lid of sv.links) {
-            const link = app.graph.links[lid];
-            if (link) link.origin_slot = 2 + sv.slotIdx;
-        }
+    }
+    // 2) trim tail beyond target (removeOutput = disconnect + splice, real delete);
+    //    NEVER drop a connected port (keeps links alive across saves/reloads).
+    //    Deleting from the tail keeps indexes valid as the array shrinks.
+    for (let i = node.outputs.length - 1; i >= target + 2; i--) {
+        const o = node.outputs[i];
+        if (o && !o.links?.length) node.removeOutput(i);
+    }
+    // 3) refresh labels on retained ports
+    for (let i = 0; i < target && i + 2 < node.outputs.length; i++) {
+        const o = node.outputs[i + 2];
+        const s = slots[i];
+        if (o && s && o.name !== s.label) o.name = s.label;
     }
     node.setSize([node.size[0], node.computeSize()[1]]);
     app.graph?.setDirtyCanvas(true, true);
@@ -382,6 +385,30 @@ function buildPanel(node) {
 
     selRow("model", W.model);
     if (W.mmproj)         selRow("mmproj", W.mmproj);
+    if (W.system_prompt) {
+        const r = row("系统提示词");
+        r.style.gridColumn = "1 / -1";
+        const ta = document.createElement("textarea");
+        ta.rows = 5;
+        ta.value = W.system_prompt.value ?? "";
+        ta.style.cssText = "width:100%;background:#262626;color:#cfcfcf;border:1px solid #303030;"
+            + "border-radius:6px;padding:6px;font-size:11px;font-family:inherit;resize:vertical;min-width:0;";
+        ta.addEventListener("input", () => { W.system_prompt.value = ta.value; });
+        r.appendChild(ta);
+        advCtrls.push(() => { ta.value = W.system_prompt.value ?? ""; });
+    }
+    if (W.user_template) {
+        const r2 = row("输出规范模板");
+        r2.style.gridColumn = "1 / -1";
+        const ta2 = document.createElement("textarea");
+        ta2.rows = 14;
+        ta2.value = W.user_template.value ?? "";
+        ta2.style.cssText = "width:100%;background:#262626;color:#cfcfcf;border:1px solid #303030;"
+            + "border-radius:6px;padding:6px;font-size:11px;font-family:monospace;line-height:1.4;resize:vertical;min-width:0;";
+        ta2.addEventListener("input", () => { W.user_template.value = ta2.value; });
+        r2.appendChild(ta2);
+        advCtrls.push(() => { ta2.value = W.user_template.value ?? ""; });
+    }
     if (W.temperature)    numRow("temperature", W.temperature, 0.05);
     if (W.repeat_penalty) numRow("repeat_penalty", W.repeat_penalty, 0.01);
     if (W.seed)           numRow("seed", W.seed);
@@ -427,19 +454,27 @@ function buildPanel(node) {
     };
 
     // DOM widget
+    const BASE_H = 280, ADV_H = 310;
     const domWidget = node.addDOMWidget("h3panel", "h3panel", root, {
         serialize: false, hideOnZoom: false,
         selectOn: ["click", "focus"],
+        // ComfyUI 0.30 DOM widgets size via these callbacks (computeLayoutSize),
+        // a plain computeSize override is ignored by the new frontend.
+        getMinHeight: () => 200,
+        getMaxHeight: () => 900,
+        getHeight: () => (advOpen ? BASE_H + ADV_H : BASE_H),
+        afterResize: () => {
+            // issue #12443 workaround: never let a stale widget.width win over node.size[0]
+            const _dw = node.widgets?.find(w => w.name === "h3panel");
+            if (_dw && typeof _dw.width === "number") delete _dw.width;
+        },
     });
-    const BASE_H = 200, ADV_H = 310;
-    domWidget.computeSize = (width) => [width, advOpen ? BASE_H + ADV_H : BASE_H];
     gearBtn.addEventListener("click", () => {
         advOpen = !advOpen;
         advBox.classList.toggle("h3p-open", advOpen);
         gearBtn.classList.toggle("h3p-on", advOpen);
-        if (advOpen && advCtrls.length >= 2) {
-            advCtrls[0]();  // refresh model select (picks up new GGUFs from last execute)
-            advCtrls[1]();  // refresh mmproj select
+        if (advOpen) {
+            for (const f of advCtrls) f();  // refresh all drawer controls incl. template editors
         }
         node.setSize([node.size[0], node.computeSize()[1]]);
         app.graph?.setDirtyCanvas(true, true);
@@ -451,15 +486,26 @@ function buildPanel(node) {
     const onConfigure = node.onConfigure;
     node.onConfigure = function () {
         const r = onConfigure?.apply(this, arguments);
-        // configure() re-created output slots from the workflow — re-sync to manifest
-        node._h3ui?.refreshFromWidgets?.();
-        refreshPanel(node);
+        // rAF: the new frontend creates widgets asynchronously, so media_manifest
+        // is only available after configure() fully settles. Re-sync ports then.
+        requestAnimationFrame(() => {
+            // Clear widget.width polluted by WidgetLegacy.vue (ComfyUI issue #12443):
+            // it freezes the DOM widget width to a stale value and squeezes content.
+            const _dw = node.widgets?.find(w => w.name === "h3panel");
+            if (_dw && typeof _dw.width === "number") delete _dw.width;
+            node._h3ui?.refreshFromWidgets?.();
+            refreshPanel(node);
+        });
         return r;
     };
     // live link/unlink from other nodes -> keep manifest-driven slots consistent
     const occ = node.onConnectionsChange;
     node.onConnectionsChange = function () {
         const r = occ?.apply(this, arguments);
+        // During configure/link restore the manifest widget may not be populated yet;
+        // touching ports then can corrupt slot layout. Skip until it has a value.
+        const w = node._h3W?.media_manifest;
+        if (!w || !w.value) return r;
         const want = mediaSlots(getMedia(node)).length + 2;
         if ((this.outputs?.length || 0) !== want) refreshPanel(this);
         return r;

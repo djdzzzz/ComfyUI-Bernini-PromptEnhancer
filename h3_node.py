@@ -323,6 +323,31 @@ SYSTEM = ("You are an H3 video prompt planner. Observe materials, analyze roles,
           "then output structured sections. The prompt text (EXECUTE, FINAL_PROMPT, "
           "soundscape, music) must be written entirely in English. ")
 
+USER_TEMPLATE = """用户需求：{prompt}
+
+{materials_block}{intent}按 H3 官方规范输出，分段如下：
+[OBSERVATION] 逐一观察每个素材的真实画面和声音，只写观察到的不要臆造——把人物外观、衣着样式颜色、场景色调材质、动作节奏、音频的台词音色原样记录{asr_hint}
+[UNDERSTAND] 判断每个素材的参考角色：哪几个提供人物外观、哪几个提供场景氛围、哪几个提供动作/运镜/节奏、哪几个提供音色/台词
+[EXECUTE] 英文 detailed_description，300-500 words：
+  开头声明 visual style + color palette + lighting
+  用 [Shot N] 分镜，首镜无时间戳，后续用 At 00:00.000 标注切镜
+  每镜头写明主体、构图、动作、光线、同步音效
+  运镜：camera pushes in with small amplitude at slow speed 等自然入句
+  对白：(Sx) says: <d>[Language] 台词 </d>；画外音补 lips remain closed
+  素材融入：<Picture N> 的外观特征、<Video N> 的运镜节奏、<Audio N> 的台词音色
+[PRESERVE] 必须保留的元素（要点列举）
+[FINAL_PROMPT] 提炼为 H3 标准三段式最终提示词（全部英文）：
+  integrated_multimodal_description: （EXECUTE 浓缩版，[Shot N]+At 00:00.000 分镜，300-500 words）
+  overall_soundscape: 1-4句环境音/动作声/非语言人声
+  non_diegetic_music: 1-3句配乐描述（无配乐则写 N/A）"""
+
+
+def _render_template(tpl, prompt, materials_block, intent_text, asr_hint):
+    """Render the user instruction template; unknown placeholders are dropped."""
+    _map = {'prompt': prompt, 'materials_block': materials_block,
+            'intent': intent_text, 'asr_hint': asr_hint}
+    return re.sub(r'\{(\w+)\}', lambda m: _map.get(m.group(1), ''), tpl or USER_TEMPLATE)
+
 
 def _build_msgs(sp, ut, imgs, labels=None):
     """imgs: list of base64 strings. labels: optional per-image labels."""
@@ -340,7 +365,7 @@ def _build_msgs(sp, ut, imgs, labels=None):
             {"role": "user", "content": ut}]
 
 
-def _route(tt, prompt, n_src=0, n_img=0, n_vid=0, audio_files=None, vid_nums=None, img_nums=None, aud_nums=None):
+def _route(tt, prompt, n_src=0, n_img=0, n_vid=0, audio_files=None, vid_nums=None, img_nums=None, aud_nums=None, system=None, user_template=None):
     """Builds dynamic template. Numbering matches official H3 Reference node: 1-based (Image 1, Video 1, Audio 1).
     vid_nums/img_nums/aud_nums are the user's manifest numbers (may have gaps after deletions).
 
@@ -381,54 +406,19 @@ def _route(tt, prompt, n_src=0, n_img=0, n_vid=0, audio_files=None, vid_nums=Non
     }.get(tt, "")
     intent_text = (intent + "\n") if intent else ""
 
-    # ---- assemble -----------------------------------------------------------------
-    if not items:
-        ut = (f"用户需求：{prompt}\n\n"
-              f"{intent_text}"
-              f"按 H3 官方规范输出，分段如下：\n"
-              f"[OBSERVATION] 构想场景、主体、风格、氛围——用 [Shot N] 分镜格式粗略编排\n"
-              f"[UNDERSTAND] 这条提示词如何组织分镜、运镜、声音来达成画面目标\n"
-              f"[EXECUTE] 详细的 integrated_multimodal_description，英文，300-500 words：\n"
-              f"  开头声明 visual style（live-action / cinematic / 2D-animated 等）+ color palette\n"
-              f"  用 [Shot N] 分镜写，首镜无时间戳，后续用 At MM:SS.mmm 标注切镜时刻\n"
-              f"  每个镜头的画面主体、构图、动作、场景、光线、同步音效全部写出\n"
-              f"  运镜写法：自然融入句中，例如 camera pushes in with small amplitude at slow speed\n"
-              f"  有对白时：外观+嗓音描述，用 (Sx) says: <d>[Language] 台词 </d> 格式\n"
-              f"  画外音：补上 while his/her lips remain completely closed\n"
-              f"[PRESERVE] 必须保留的核心意图（要点列举）\n"
-              f"[FINAL_PROMPT] 提炼为 H3 标准三段式最终提示词（全部英文）：\n"
-              f"  integrated_multimodal_description: （EXECUTE 浓缩版，[Shot N]+At 00:00.000 分镜，300-500 words）\n"
-              f"  overall_soundscape: 1-4句环境音/动作声/非语言人声\n"
-              f"  non_diegetic_music: 1-3句配乐描述（无配乐则写 N/A）")
-    else:
-        ut = (f"用户需求：{prompt}\n\n"
-              f"{material_text}"
-              f"{intent_text}"
-              f"（用户在需求里可能用 &lt;Video N&gt;/&lt;Picture N&gt;/&lt;Audio N&gt; 引用素材——编号与上面一致；"
-              f"也可自由指定素材用途，例如『<Picture 1> 的角色外观，<Video 1> 的场景运镜，<Audio 1> 的台词情感』。）\n\n"
-              f"按 H3 官方规范输出，分段如下：\n"
-              f"[OBSERVATION] 逐一观察每个素材的真实画面和声音，只写观察到的不要臆造"
-              f"——把人物外观、衣着样式颜色、场景色调材质、动作节奏、音频的台词音色原样记录{asr_hint}\n"
-              f"[UNDERSTAND] 判断每个素材的参考角色：哪几个提供人物外观、哪几个提供场景氛围、哪几个提供动作/运镜/节奏、哪几个提供音色/台词\n"
-              f"[EXECUTE] 英文 detailed_description，300-500 words：\n"
-              f"  开头声明 visual style + color palette + lighting\n"
-              f"  用 [Shot N] 分镜，首镜无时间戳，后续用 At 00:00.000 标注切镜\n"
-              f"  每镜头写明主体、构图、动作、光线、同步音效\n"
-              f"  运镜：camera pushes in with small amplitude at slow speed 等自然入句\n"
-              f"  对白：(Sx) says: <d>[Language] 台词 </d>；画外音补 lips remain closed\n"
-              f"  素材融入：<Picture N> 的外观特征、<Video N> 的运镜节奏、<Audio N> 的台词音色\n"
-              f"[PRESERVE] 必须保留的元素（要点列举）\n"
-              f"[FINAL_PROMPT] 提炼为 H3 标准三段式最终提示词（全部英文）：\n"
-              f"  integrated_multimodal_description: （EXECUTE 浓缩版，[Shot N]+At 00:00.000 分镜，300-500 words）\n"
-              f"  overall_soundscape: 1-4句环境音/动作声/非语言人声\n"
-              f"  non_diegetic_music: 1-3句配乐描述（无配乐则写 N/A）")
+    # ---- assemble: render from editable template (default USER_TEMPLATE) --------
+    materials_block = (material_text
+        + "（用户在需求里可能用 &lt;Video N&gt;/&lt;Picture N&gt;/&lt;Audio N&gt; 引用素材——编号与上面一致；"
+        + "也可自由指定素材用途，例如『<Picture 1> 的角色外观，<Video 1> 的场景运镜，<Audio 1> 的台词情感』。）\n\n"
+        ) if items else ""
+    ut = _render_template(user_template, prompt, materials_block, intent_text, asr_hint)
 
     if tt == "i2v": order = "video+ref"
     elif n_src and (n_img or n_vid): order = "video+ref"
     elif n_img or n_vid:        order = "ref"
     elif n_src:                 order = "video"
     else:                       order = "none"
-    return (SYSTEM, ut, order)
+    return (system or SYSTEM, ut, order)
 
 
 
@@ -517,6 +507,12 @@ class H3PromptEnhancer(io.ComfyNode):
                 io.Int.Input('image_max_side', default=512, min=64, max=4096, step=32,
                     tooltip='喂给 planner 的图片最长边（常用 384/512/768/1024/1536），直接输入任意值'),
                 io.Boolean.Input('thinking_mode', default=False),
+                # 追加在末尾：ComfyUI 按位置索引恢复 widgets_values，
+                # 放在中间会让旧工作流的值错位（media_manifest JSON 串到 system_prompt）
+                io.String.Input('system_prompt', default=SYSTEM, multiline=True,
+                    tooltip='系统提示词，默认内置 H3 planner 系统提示，可自行编辑覆盖'),
+                io.String.Input('user_template', default=USER_TEMPLATE, multiline=True,
+                    tooltip='用户指令模板（输出规范），占位符：{prompt} {materials_block} {intent} {asr_hint}'),
             ],
             outputs=[
                 io.String.Output(display_name='enhanced_prompt'),
@@ -528,7 +524,7 @@ class H3PromptEnhancer(io.ComfyNode):
 
     @classmethod
     def execute(cls, model, mmproj, task_type, prompt, media_manifest='',
-            temperature=0.6, repeat_penalty=1.15, seed=0,
+            system_prompt=None, user_template=None, temperature=0.6, repeat_penalty=1.15, seed=0,
             n_ctx=8192, n_gpu_layers=-1, max_tokens=2048,
             frame_mode='uniform', video_frames=5, sample_fps=0, sample_seconds=5.0,
             image_max_side=512, thinking_mode=False):
@@ -607,7 +603,7 @@ class H3PromptEnhancer(io.ComfyNode):
         if not aud_nums:
             aud_nums = list(range(1, len(audio_files) + 1))
 
-        sp, ut, order = _route(task_type, prompt, n_src=len(src), n_img=len(ref), n_vid=len(rvid),
+        sp, ut, order = _route(task_type, prompt, system=system_prompt, user_template=user_template, n_src=len(src), n_img=len(ref), n_vid=len(rvid),
                                audio_files=audio_files, vid_nums=vid_nums, img_nums=img_nums, aud_nums=aud_nums)
         if audio_files:
             parts = '; '.join(f'<Audio {aud_nums[i]}>:{os.path.basename(ap)}' for i, ap in enumerate(audio_files))
