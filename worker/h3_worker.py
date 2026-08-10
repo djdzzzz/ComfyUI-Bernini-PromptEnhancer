@@ -105,6 +105,22 @@ def _load(payload):
                 ctypes.CDLL(os.path.join(_conda_lib, "libstdc++.so.6"), mode=ctypes.RTLD_GLOBAL)
             except Exception:
                 pass
+            try:
+                import ctypes, os
+                # Preload CUDA runtime libs so libggml-cuda.so resolves them even when
+                # LD_LIBRARY_PATH only points at NVIDIA driver dirs.
+                for _cand in ("/usr/local/cuda/targets/x86_64-linux/lib",
+                              "/usr/local/cuda-12.8/targets/x86_64-linux/lib",
+                              "/usr/local/cuda/lib64"):
+                    for _lib in ("libcudart.so.12", "libcublas.so.12", "libcublasLt.so.12"):
+                        _p = os.path.join(_cand, _lib)
+                        if os.path.isfile(_p):
+                            try:
+                                ctypes.CDLL(_p, mode=ctypes.RTLD_GLOBAL)
+                            except Exception:
+                                pass
+            except Exception:
+                pass
             from llama_cpp import Llama
             kw = dict(
                 model_path=payload["model_path"], n_ctx=payload["n_ctx"],
@@ -114,27 +130,24 @@ def _load(payload):
                 seed=payload["seed"], verbose=payload.get("verbose", False),
             )
             mm = payload.get("mmproj_path")
+            llm = Llama(**kw)
             if mm:
-                # Gemma 4 first (audio+vision mmproj) via audio-capable handler, then fallbacks.
-                for handler_path in [
-                    "Gemma4AudioChatHandler",
-                    "llama_cpp.llama_chat_format.Gemma4ChatHandler",
-                    "llama_cpp.llama_chat_format.Gemma3nChatHandler",
-                    "llama_cpp.llama_chat_format.Qwen3VLHandler",
-                    "llama_cpp.llama_chat_format.Qwen25VLChatHandler",
-                ]:
-                    try:
-                        if handler_path == "Gemma4AudioChatHandler":
-                            handler_cls = Gemma4AudioChatHandler._make
-                        else:
-                            mod, cls = handler_path.rsplit(".", 1)
-                            handler_cls = __import__(mod, fromlist=[cls]).__dict__[cls]
-                        kw["chat_handler"] = handler_cls(clip_model_path=mm)
-                        _log(f"using {handler_path.rsplit('.',1)[-1]}")
-                        break
-                    except Exception as e:
-                        _log(f"{handler_path.rsplit('.',1)[-1]} failed: {e}")
-            return Llama(**kw)
+                # Pick the chat handler by model architecture, not by fixed order:
+                # Gemma 4 gets the audio-capable handler; everything else (Qwen3.5,
+                # Qwen-VL, ...) uses the native template-driven GenericMTMDChatHandler.
+                arch = str(llm.metadata.get("general.architecture", ""))
+                if arch == "gemma4":
+                    llm.chat_handler = Gemma4AudioChatHandler._make(clip_model_path=mm)
+                    _log("using Gemma4AudioChatHandler")
+                else:
+                    from llama_cpp import llama_multimodal
+                    llm.chat_handler = llama_multimodal.GenericMTMDChatHandler(
+                        chat_format=llm.metadata.get("tokenizer.chat_template", None),
+                        mmproj_path=mm,
+                        verbose=False,
+                    )
+                    _log(f"using GenericMTMDChatHandler (arch={arch})")
+            return llm
 
 
 def _strip_input_audio(msgs):

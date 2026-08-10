@@ -26,7 +26,7 @@ const H3_CSS = `
 .h3p { display:flex; flex-direction:column; gap:8px; width:100%; height:100%;
        box-sizing:border-box; background:#191919; border:1px solid #2b2b2b;
        border-radius:10px; padding:10px; font-family:inherit;
-       color:#d5d5d5; font-size:12px; overflow:hidden; }
+       color:#d5d5d5; font-size:12px; overflow:auto; }
 .h3p * { box-sizing:border-box; }
 .h3p-top { display:flex; gap:10px; flex:1 1 auto; min-height:110px; }
 .h3p-media { width:112px; flex:0 0 112px; border:1px dashed #3a3a3a; border-radius:8px;
@@ -242,29 +242,25 @@ function mediaSlots(m) {
 
 function syncOutputs(node) {
     const slots = mediaSlots(getMedia(node));
-    const old = node.outputs || [];
-    const saved = [];
-    for (let i = 2; i < old.length; i++) {
-        const o = old[i];
-        if (o?.links?.length) saved.push({ slotIdx: i - 2, type: o.type, links: o.links.slice() });
-    }
-    for (let i = old.length - 1; i >= 2; i--) node.disconnectOutput(i);
-    node.outputs = old.slice(0, 2);
-    slots.forEach((s, i) => {
-        node.addOutput(s.label, s.type);
-        const o = node.outputs[node.outputs.length - 1];
+    const target = slots.length;
+    // 1) ensure media ports exist up to target (append only, indexes stay stable)
+    while ((node.outputs?.length || 2) - 2 < target) {
+        const s = slots[(node.outputs.length - 2)];
+        const o = node.addOutput(s.label, s.type);
         if (s.type === "VIDEO") o.color_on = o.color_off = "#66a3ff";
         else if (s.type === "AUDIO") o.color_on = o.color_off = "#ffa04d";
-    });
-    for (const sv of saved) {
-        const s = slots[sv.slotIdx];
-        if (!s || s.type !== sv.type) continue;
-        const out = node.outputs[2 + sv.slotIdx];
-        out.links = sv.links;
-        for (const lid of sv.links) {
-            const link = app.graph.links[lid];
-            if (link) link.origin_slot = 2 + sv.slotIdx;
-        }
+    }
+    // 2) trim ports beyond target, but NEVER drop a connected port (keeps links alive)
+    for (let i = (node.outputs?.length || 0) - 1; i >= target + 2; i--) {
+        const o = node.outputs[i];
+        if (o && !o.links?.length) node.disconnectOutput(i);
+    }
+    // 3) refresh labels on retained ports
+    const outs = node.outputs || [];
+    for (let i = 0; i < target && i + 2 < outs.length; i++) {
+        const o = outs[i + 2];
+        const s = slots[i];
+        if (o && s && o.name !== s.label) o.name = s.label;
     }
     node.setSize([node.size[0], node.computeSize()[1]]);
     app.graph?.setDirtyCanvas(true, true);
@@ -431,8 +427,12 @@ function buildPanel(node) {
         serialize: false, hideOnZoom: false,
         selectOn: ["click", "focus"],
     });
-    const BASE_H = 200, ADV_H = 310;
-    domWidget.computeSize = (width) => [width, advOpen ? BASE_H + ADV_H : BASE_H];
+    const BASE_H = 280, ADV_H = 310;
+    domWidget.computeSize = (width) => {
+        // adapt to real panel content so the widget fills the node frame
+        const need = Math.max(BASE_H, root.scrollHeight || 0);
+        return [width, advOpen ? need + ADV_H : need];
+    };
     gearBtn.addEventListener("click", () => {
         advOpen = !advOpen;
         advBox.classList.toggle("h3p-open", advOpen);
@@ -447,13 +447,34 @@ function buildPanel(node) {
 
     node.setSize([Math.max(node.size[0], 600), Math.max(node.size[1], node.computeSize()[1])]);
 
+    // keep the node frame in sync with panel content size
+    let _h3roT = null;
+    const _h3ro = new ResizeObserver(() => {
+        clearTimeout(_h3roT);
+        _h3roT = setTimeout(() => {
+            node.setSize([node.size[0], node.computeSize()[1]]);
+            app.graph?.setDirtyCanvas(true, true);
+        }, 120);
+    });
+    _h3ro.observe(root);
+    node.onRemoved = (() => {
+        const prev = node.onRemoved;
+        return function () {
+            try { _h3ro.disconnect(); } catch (e) {}
+            return prev?.apply(this, arguments);
+        };
+    })();
+
     // lifecycle
     const onConfigure = node.onConfigure;
     node.onConfigure = function () {
         const r = onConfigure?.apply(this, arguments);
-        // configure() re-created output slots from the workflow — re-sync to manifest
-        node._h3ui?.refreshFromWidgets?.();
-        refreshPanel(node);
+        // Delay until configure() fully finished: widgets (media_manifest) must be
+        // restored before re-syncing ports, otherwise saved links find no slot.
+        setTimeout(() => {
+            node._h3ui?.refreshFromWidgets?.();
+            refreshPanel(node);
+        }, 0);
         return r;
     };
     // live link/unlink from other nodes -> keep manifest-driven slots consistent
