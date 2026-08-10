@@ -140,13 +140,25 @@ def _load(payload):
                     llm.chat_handler = Gemma4AudioChatHandler._make(clip_model_path=mm)
                     _log("using Gemma4AudioChatHandler")
                 else:
-                    from llama_cpp import llama_multimodal
-                    llm.chat_handler = llama_multimodal.GenericMTMDChatHandler(
-                        chat_format=llm.metadata.get("tokenizer.chat_template", None),
-                        mmproj_path=mm,
-                        verbose=False,
-                    )
-                    _log(f"using GenericMTMDChatHandler (arch={arch})")
+                    # GenericMTMDChatHandler exists on JamePeng llama-cpp-python
+                    # (0.3.35+); PyPI builds (<=0.3.34) lack it, so fall back to
+                    # Qwen25VLChatHandler and finally to text-only mode.
+                    try:
+                        from llama_cpp import llama_multimodal
+                        llm.chat_handler = llama_multimodal.GenericMTMDChatHandler(
+                            chat_format=llm.metadata.get("tokenizer.chat_template", None),
+                            mmproj_path=mm,
+                            verbose=False,
+                        )
+                        _log(f"using GenericMTMDChatHandler (arch={arch})")
+                    except (ImportError, AttributeError):
+                        try:
+                            from llama_cpp.llama_chat_format import Qwen25VLChatHandler
+                            llm.chat_handler = Qwen25VLChatHandler(clip_model_path=mm)
+                            _log(f"using Qwen25VLChatHandler (arch={arch})")
+                        except Exception as e:
+                            _log(f"no multimodal handler available (arch={arch}, err={e}); text-only")
+                            llm.chat_handler = None
             return llm
 
 

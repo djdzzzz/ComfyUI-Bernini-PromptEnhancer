@@ -245,28 +245,27 @@ function mediaSlots(m) {
 function syncOutputs(node) {
     const slots = mediaSlots(getMedia(node));
     const target = slots.length;
-    const outs = node.outputs || [];
+    // NOTE: addOutput/removeOutput mutate node.outputs in place — never keep a
+    // separate array copy, it would double-push / double-splice and corrupt slots.
     // 1) ensure media ports exist up to target (append only, indexes stay stable)
-    while (outs.length - 2 < target) {
-        const s = slots[outs.length - 2];
+    while (node.outputs.length - 2 < target) {
+        const s = slots[node.outputs.length - 2];
         if (!s) break;
-        const o = node.addOutput(s.label, s.type);
+        node.addOutput(s.label, s.type);
+        const o = node.outputs[node.outputs.length - 1];
         if (s.type === "VIDEO") o.color_on = o.color_off = "#66a3ff";
         else if (s.type === "AUDIO") o.color_on = o.color_off = "#ffa04d";
-        outs.push(o);
     }
-    // 2) trim ports beyond target. removeOutput = disconnect + splice (real delete);
-    //    NEVER drop a connected port (keeps links alive across saves/reloads)
-    for (let i = outs.length - 1; i >= target + 2; i--) {
-        const o = outs[i];
-        if (o && !o.links?.length) {
-            node.removeOutput(i);
-            outs.splice(i, 1);
-        }
+    // 2) trim tail beyond target (removeOutput = disconnect + splice, real delete);
+    //    NEVER drop a connected port (keeps links alive across saves/reloads).
+    //    Deleting from the tail keeps indexes valid as the array shrinks.
+    for (let i = node.outputs.length - 1; i >= target + 2; i--) {
+        const o = node.outputs[i];
+        if (o && !o.links?.length) node.removeOutput(i);
     }
     // 3) refresh labels on retained ports
-    for (let i = 0; i < target && i + 2 < outs.length; i++) {
-        const o = outs[i + 2];
+    for (let i = 0; i < target && i + 2 < node.outputs.length; i++) {
+        const o = node.outputs[i + 2];
         const s = slots[i];
         if (o && s && o.name !== s.label) o.name = s.label;
     }
@@ -474,9 +473,8 @@ function buildPanel(node) {
         advOpen = !advOpen;
         advBox.classList.toggle("h3p-open", advOpen);
         gearBtn.classList.toggle("h3p-on", advOpen);
-        if (advOpen && advCtrls.length >= 2) {
-            advCtrls[0]();  // refresh model select (picks up new GGUFs from last execute)
-            advCtrls[1]();  // refresh mmproj select
+        if (advOpen) {
+            for (const f of advCtrls) f();  // refresh all drawer controls incl. template editors
         }
         node.setSize([node.size[0], node.computeSize()[1]]);
         app.graph?.setDirtyCanvas(true, true);

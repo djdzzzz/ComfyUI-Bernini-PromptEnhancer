@@ -344,11 +344,9 @@ USER_TEMPLATE = """用户需求：{prompt}
 
 def _render_template(tpl, prompt, materials_block, intent_text, asr_hint):
     """Render the user instruction template; unknown placeholders are dropped."""
-    return (tpl or USER_TEMPLATE) \
-        .replace('{prompt}', prompt) \
-        .replace('{materials_block}', materials_block) \
-        .replace('{intent}', intent_text) \
-        .replace('{asr_hint}', asr_hint)
+    _map = {'prompt': prompt, 'materials_block': materials_block,
+            'intent': intent_text, 'asr_hint': asr_hint}
+    return re.sub(r'\{(\w+)\}', lambda m: _map.get(m.group(1), ''), tpl or USER_TEMPLATE)
 
 
 def _build_msgs(sp, ut, imgs, labels=None):
