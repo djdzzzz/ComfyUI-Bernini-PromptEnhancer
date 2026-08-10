@@ -93,36 +93,48 @@ class Gemma4AudioChatHandler:
 
 
 def _load(payload):
-    from llama_cpp import Llama
-    kw = dict(
-        model_path=payload["model_path"], n_ctx=payload["n_ctx"],
-        n_gpu_layers=payload["n_gpu_layers"], n_threads=payload["n_threads"],
-        use_mmap=payload.get("use_mmap", True),
-        use_mlock=payload.get("use_mlock", False),
-        seed=payload["seed"], verbose=payload.get("verbose", False),
-    )
-    mm = payload.get("mmproj_path")
-    if mm:
-        # Gemma 4 first (audio+vision mmproj) via audio-capable handler, then fallbacks.
-        for handler_path in [
-            "Gemma4AudioChatHandler",
-            "llama_cpp.llama_chat_format.Gemma4ChatHandler",
-            "llama_cpp.llama_chat_format.Gemma3nChatHandler",
-            "llama_cpp.llama_chat_format.Qwen3VLHandler",
-            "llama_cpp.llama_chat_format.Qwen25VLChatHandler",
-        ]:
+        import contextlib, io
+        # llama-cpp-python prints "[llama-cpp-python].provided_path: ..." to stdout on
+        # import, which corrupts the JSON-line protocol. Redirect stdout during import.
+        with contextlib.redirect_stdout(io.StringIO()):
+            # Preload conda libstdc++ (RTLD_GLOBAL) so llama.cpp .so files resolve the
+            # new CXXABI even when LD_LIBRARY_PATH points at older system libs.
             try:
-                if handler_path == "Gemma4AudioChatHandler":
-                    handler_cls = Gemma4AudioChatHandler._make
-                else:
-                    mod, cls = handler_path.rsplit(".", 1)
-                    handler_cls = __import__(mod, fromlist=[cls]).__dict__[cls]
-                kw["chat_handler"] = handler_cls(clip_model_path=mm)
-                _log(f"using {handler_path.rsplit('.',1)[-1]}")
-                break
-            except Exception as e:
-                _log(f"{handler_path.rsplit('.',1)[-1]} failed: {e}")
-    return Llama(**kw)
+                import ctypes, os
+                _conda_lib = os.path.join(os.path.dirname(os.path.dirname(sys.executable)), "lib")
+                ctypes.CDLL(os.path.join(_conda_lib, "libstdc++.so.6"), mode=ctypes.RTLD_GLOBAL)
+            except Exception:
+                pass
+            from llama_cpp import Llama
+            kw = dict(
+                model_path=payload["model_path"], n_ctx=payload["n_ctx"],
+                n_gpu_layers=payload["n_gpu_layers"], n_threads=payload["n_threads"],
+                use_mmap=payload.get("use_mmap", True),
+                use_mlock=payload.get("use_mlock", False),
+                seed=payload["seed"], verbose=payload.get("verbose", False),
+            )
+            mm = payload.get("mmproj_path")
+            if mm:
+                # Gemma 4 first (audio+vision mmproj) via audio-capable handler, then fallbacks.
+                for handler_path in [
+                    "Gemma4AudioChatHandler",
+                    "llama_cpp.llama_chat_format.Gemma4ChatHandler",
+                    "llama_cpp.llama_chat_format.Gemma3nChatHandler",
+                    "llama_cpp.llama_chat_format.Qwen3VLHandler",
+                    "llama_cpp.llama_chat_format.Qwen25VLChatHandler",
+                ]:
+                    try:
+                        if handler_path == "Gemma4AudioChatHandler":
+                            handler_cls = Gemma4AudioChatHandler._make
+                        else:
+                            mod, cls = handler_path.rsplit(".", 1)
+                            handler_cls = __import__(mod, fromlist=[cls]).__dict__[cls]
+                        kw["chat_handler"] = handler_cls(clip_model_path=mm)
+                        _log(f"using {handler_path.rsplit('.',1)[-1]}")
+                        break
+                    except Exception as e:
+                        _log(f"{handler_path.rsplit('.',1)[-1]} failed: {e}")
+            return Llama(**kw)
 
 
 def _strip_input_audio(msgs):
